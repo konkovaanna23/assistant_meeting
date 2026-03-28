@@ -24,7 +24,7 @@ type SalutSpeechClient struct {
 	mainHost string /*TODO сделать из конфигов*/
 	authKey  string /*TODO сделать из конфигов*/
 	token    *ResponseToken
-	requests chan string
+	requests chan *Task
 	mx       sync.RWMutex
 }
 
@@ -72,7 +72,7 @@ func NewSalutSpeechClient(authHost, mainHost, authKey string, countWorkers int, 
 		client:   resty.New(),
 		authHost: authHost,
 		authKey:  authKey,
-		requests: make(chan string, sizeChanel),
+		requests: make(chan *Task, sizeChanel),
 	}
 }
 
@@ -244,8 +244,4 @@ func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 	/*TODO добавить обработку всех статусов*/
 	return string(response.Body()), nil
 
-}
-
-func isEnd(status TaskStatus) bool {
-	return status == TaskStatusCanceled || status == TaskStatusDone || status == TaskStatusError
 }
