@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
@@ -47,7 +46,7 @@ type ResponseUploadFile struct {
 
 type RequestOptions struct {
 	Model         string `json:"model"`
-	Encoding      string `json:"encoding"`
+	Encoding      string `json:"audio_encoding"`
 	SampleRate    int    `json:"sample_rate"`
 	ChannelsCount int    `json:"channels_count"`
 	Language      string `json:"language"`
@@ -71,13 +70,14 @@ type ResponseRecognize struct {
 	Result *StatusTask `json:"result"`
 }
 
-func NewSalutSpeechClient(ctx context.Context, logger *zap.Logger, authHost, mainHost, authKey string, countWorkers int, sizeChanel int) (*SalutSpeechClient, error) {
+func NewSalutSpeechClient(ctx context.Context, authHost, mainHost, authKey string, countWorkers int, sizeChanel int, logger *zap.Logger) (*SalutSpeechClient, error) {
 	salutSpeech := &SalutSpeechClient{
 		client:   resty.New(),
 		authHost: authHost,
 		authKey:  authKey,
 		mainHost: mainHost,
 		requests: make(chan *Task, sizeChanel),
+		lgr:      logger,
 	}
 	responseToken, err := salutSpeech.GetToken()
 	if err != nil {
@@ -233,7 +233,7 @@ func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, string, error
 
 	responseStatus := &ResponseRecognize{}
 
-	err = json.Unmarshal(response.Body(), &response)
+	err = json.Unmarshal(response.Body(), &responseStatus)
 	if err != nil {
 		return "", "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
 	}
@@ -261,6 +261,6 @@ func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 	}
 
 	/*TODO добавить обработку всех статусов*/
-	return string(response.Body()), nil
+	return response.String(), nil
 
 }
