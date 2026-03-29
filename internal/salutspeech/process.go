@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
 )
 
@@ -93,9 +94,14 @@ end:
 
 }
 
-func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string) (*Task, error) {
+func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string, inputAudio *model.InputAudio) (*Task, error) {
 	ss.lgr.Info("Запрос на распознавание файла", zap.String("file", pathFile))
-	requestFileID, err := ss.UploadFile(pathFile)
+
+	audioSpec, err := DetectAudioSpec(inputAudio)
+	if err != nil {
+		return nil, err
+	}
+	requestFileID, err := ss.UploadFile(pathFile, audioSpec.ContentType)
 	if err != nil {
 		log.Printf("ошибка загрузки файла %s", err.Error())
 		return nil, err
@@ -103,7 +109,7 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string)
 
 	ss.lgr.Debug("Файл загружен", zap.String("fileID", requestFileID))
 
-	taskStatus, err := ss.CreateTaskRecognize(requestFileID)
+	taskStatus, err := ss.CreateTaskRecognize(requestFileID, audioSpec.Encoding, audioSpec.Channels, audioSpec.SampleRate)
 	if err != nil {
 		log.Printf("ошибка создания задачи на распознование %s", err.Error())
 		return nil, err

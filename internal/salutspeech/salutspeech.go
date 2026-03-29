@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/go-resty/resty/v2"
@@ -47,8 +48,8 @@ type ResponseUploadFile struct {
 type RequestOptions struct {
 	Model         string `json:"model"`
 	Encoding      string `json:"audio_encoding"`
-	SampleRate    int    `json:"sample_rate"`
-	ChannelsCount int    `json:"channels_count"`
+	SampleRate    int    `json:"sample_rate,omitempty"`
+	ChannelsCount int    `json:"channels_count,omitempty"`
 	Language      string `json:"language"`
 }
 
@@ -129,10 +130,10 @@ func NewUUID() string {
 	return uuid.New().String()
 }
 
-func (ss *SalutSpeechClient) UploadFile(audioFilePath string) (string, error) {
+func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string) (string, error) {
 
 	response, err := ss.client.R().
-		SetHeader("Content-Type", "audio/pcmu;rate=16000").
+		SetHeader("Content-Type", contentType).
 		SetFile("audio", audioFilePath).
 		SetHeader("Accept", "application/json").
 		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
@@ -167,16 +168,24 @@ func (ss *SalutSpeechClient) GetCurrentToken() string {
 	return ss.token.Token
 }
 
-func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string) (*StatusTask, error) {
+func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string, channels int, sampleRate int) (*StatusTask, error) {
+
+	options := &RequestOptions{Model: "general",
+		Language: "ru-RU",
+		Encoding: encoding,
+	}
+
+	if channels > 0 {
+		options.ChannelsCount = channels
+	}
+
+	if sampleRate > 0 {
+		options.SampleRate = sampleRate
+	}
 
 	request := &RequestRecognize{
-		Options: &RequestOptions{Model: "general",
-			Encoding:      "PCM_S16LE",
-			SampleRate:    16000,
-			Language:      "ru-RU",
-			ChannelsCount: 1,
-		},
-		FileID: fileID,
+		Options: options,
+		FileID:  fileID,
 	}
 
 	requestJson, err := json.Marshal(request)
@@ -245,7 +254,7 @@ func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, string, error
 func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 
 	response, err := ss.client.R().
-		SetHeader("Accept", "application/json").
+		SetHeader("Accept", "application/octet-stream").
 		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
 		SetQueryParams(map[string]string{
 			"response_file_id": fileID,
@@ -260,7 +269,20 @@ func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 		return "", fmt.Errorf("%s", response.Body())
 	}
 
+	contentType := response.Header().Get("Content-Type")
+	fmt.Printf("Content-Type: %s\n", contentType)
+
+	err = saveBinaryResult(response.Body(), "./result.txt")
+	if err != nil {
+		ss.lgr.Error(err.Error())
+	}
+	fmt.Println("Бинарный результат сохранён: ./result.txt")
+
 	/*TODO добавить обработку всех статусов*/
 	return response.String(), nil
 
+}
+
+func saveBinaryResult(data []byte, path string) error {
+	return os.WriteFile(path, data, 0644)
 }
