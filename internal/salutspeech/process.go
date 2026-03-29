@@ -14,13 +14,14 @@ var endStatuses = map[string]bool{
 }
 
 type Task struct {
-	PathFile     string
-	FileID       string
-	TaskID       string
-	Status       string
-	Done         chan struct{}
-	Result       string
-	ErrorMessage string
+	PathFile       string
+	FileID         string
+	TaskID         string
+	Status         string
+	Done           chan struct{}
+	Result         string
+	ErrorMessage   string
+	ResponseFileID string
 }
 
 func isDone(status string) bool {
@@ -40,6 +41,7 @@ func (ss *SalutSpeechClient) worker(ctx context.Context, i int) {
 		case <-ctx.Done():
 			log.Printf("worker %d прерван", i)
 		case task := <-ss.requests:
+			ss.lgr.Debug()
 			ss.waitResult(ctx, task)
 		}
 	}

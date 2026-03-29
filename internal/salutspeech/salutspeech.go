@@ -1,6 +1,7 @@
 package salutspeech
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 const (
@@ -26,11 +28,12 @@ type SalutSpeechClient struct {
 	token    *ResponseToken
 	requests chan *Task
 	mx       sync.RWMutex
+	lgr      *zap.Logger
 }
 
 type ResponseToken struct {
-	Token       string    `json:"access_token"`
-	ExpiresDate time.Time `json:"expires_at"`
+	Token       string `json:"access_token"`
+	ExpiresDate int64  `json:"expires_at"`
 }
 
 type ResultID struct {
@@ -56,10 +59,11 @@ type RequestRecognize struct {
 }
 
 type StatusTask struct {
-	ID        string `json:"id,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	Status    string `json:"status"`
+	ID             string `json:"id,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	Status         string `json:"status"`
+	ResponseFileID string `json:"response_file_id"`
 }
 
 type ResponseRecognize struct {
@@ -67,15 +71,30 @@ type ResponseRecognize struct {
 	Result *StatusTask `json:"result"`
 }
 
-func NewSalutSpeechClient(authHost, mainHost, authKey string, countWorkers int, sizeChanel int) *SalutSpeechClient {
-	return &SalutSpeechClient{
+func NewSalutSpeechClient(ctx context.Context, logger *zap.Logger, authHost, mainHost, authKey string, countWorkers int, sizeChanel int) (*SalutSpeechClient, error) {
+	salutSpeech := &SalutSpeechClient{
 		client:   resty.New(),
 		authHost: authHost,
 		authKey:  authKey,
+		mainHost: mainHost,
 		requests: make(chan *Task, sizeChanel),
 	}
+	responseToken, err := salutSpeech.GetToken()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения токена: %s", err.Error())
+	}
+	salutSpeech.setToken(responseToken)
+
+	salutSpeech.StartWorkers(ctx, countWorkers)
+
+	return salutSpeech, nil
 }
 
+func (ss *SalutSpeechClient) setToken(token *ResponseToken) {
+	ss.mx.Lock()
+	defer ss.mx.Unlock()
+	ss.token = token
+}
 func (ss *SalutSpeechClient) GetToken() (*ResponseToken, error) {
 	rqUID := NewUUID()
 
@@ -194,7 +213,7 @@ func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string) (*StatusTask, er
 
 }
 
-func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, error) {
+func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, string, error) {
 
 	response, err := ss.client.R().
 		SetHeader("Accept", "application/octet-stream").
@@ -205,21 +224,21 @@ func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, error) {
 		Get(ss.mainHost + endpointsGetStatus)
 
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("%s", response.Body())
+		return "", "", fmt.Errorf("%s", response.Body())
 	}
 
-	responseStatus := &StatusTask{}
+	responseStatus := &ResponseRecognize{}
 
 	err = json.Unmarshal(response.Body(), &response)
 	if err != nil {
-		return "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
+		return "", "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
 	}
 	/*TODO добавить обработку всех статусов*/
-	return responseStatus.Status, nil
+	return responseStatus.Result.Status, responseStatus.Result.ResponseFileID, nil
 
 }
 
