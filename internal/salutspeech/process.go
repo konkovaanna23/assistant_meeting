@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var endStatuses = map[string]bool{
@@ -39,9 +41,10 @@ func (ss *SalutSpeechClient) worker(ctx context.Context, i int) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("worker %d прерван", i)
+			ss.lgr.Info("Worker прерван", zap.Int("worker", i))
+			return
 		case task := <-ss.requests:
-			ss.lgr.Debug()
+			ss.lgr.Debug("Запрос на ожидание статуса", zap.String("taskID", task.TaskID))
 			ss.waitResult(ctx, task)
 		}
 	}
@@ -53,16 +56,18 @@ end:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("отмена контекста, задача %s не будет выполнена")
-
+			ss.lgr.Info("Выполнение прервано, статус по задаче не будет получен", zap.String("taskID", task.TaskID))
+			return
 		default:
-			taskStatus, err := ss.GetStatusTask(task.TaskID)
+			taskStatus, responseFileID, err := ss.GetStatusTask(task.TaskID)
+
 			if err != nil {
-				log.Printf("ошибка получения статуса %s", err.Error())
+				ss.lgr.Error("ошибка получения статуса", zap.Error(err))
 			} else {
+				ss.lgr.Debug("Получен статус задачи", zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
 				task.Status = taskStatus
+				task.ResponseFileID = responseFileID
 				if endStatuses[taskStatus] {
-					task.Status = taskStatus
 					break end
 				}
 			}
@@ -72,25 +77,31 @@ end:
 	}
 
 	if isDone(task.Status) {
-		data, err := ss.GetData(task.FileID)
+		ss.lgr.Info("Запрос данных по файлу", zap.String("responseFileID", task.ResponseFileID))
+		data, err := ss.GetData(task.ResponseFileID)
 		if err != nil {
 			errMsg := fmt.Sprintf("ошибка получения информации %s", err.Error())
+			ss.lgr.Error("ошибка получения информации ", zap.Error(err))
 			task.ErrorMessage = errMsg
 		}
 		task.Result = data
 	} else {
 		errMsg := fmt.Sprintf("задача завершилась со статусом %s", task.Status)
+		ss.lgr.Error("задача завершилась со статусом ", zap.String("status", task.Status))
 		task.ErrorMessage = errMsg
 	}
 
 }
 
 func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string) (*Task, error) {
+	ss.lgr.Info("Запрос на распознавание файла", zap.String("file", pathFile))
 	requestFileID, err := ss.UploadFile(pathFile)
 	if err != nil {
 		log.Printf("ошибка загрузки файла %s", err.Error())
 		return nil, err
 	}
+
+	ss.lgr.Debug("Файл загружен", zap.String("fileID", requestFileID))
 
 	taskStatus, err := ss.CreateTaskRecognize(requestFileID)
 	if err != nil {
@@ -98,17 +109,26 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string)
 		return nil, err
 	}
 
+	ss.lgr.Debug("Установлена задача на распознавание", zap.String("taskID", taskStatus.ID))
+
 	task := &Task{FileID: requestFileID,
-		PathFile: pathFile,
-		TaskID:   taskStatus.ID,
-		Status:   taskStatus.Status,
+		PathFile:       pathFile,
+		TaskID:         taskStatus.ID,
+		Status:         taskStatus.Status,
+		Done:           make(chan struct{}),
+		ResponseFileID: taskStatus.ResponseFileID,
 	}
+
+	ss.lgr.Debug("Получен статус", zap.String("taskID", taskStatus.ID), zap.String("status", taskStatus.Status))
+
 	if endStatuses[task.Status] {
 		if isDone(task.Status) {
-			data, err := ss.GetData(requestFileID)
+
+			ss.lgr.Debug("Получен конечный успешный статус, запрашиваем данные", zap.String("status", taskStatus.Status), zap.String("responceFileID", taskStatus.ResponseFileID))
+
+			data, err := ss.GetData(taskStatus.ResponseFileID)
 			if err != nil {
 				return nil, fmt.Errorf("ошибка при получении данны %s", err.Error())
-
 			}
 			task.Result = data
 		}
