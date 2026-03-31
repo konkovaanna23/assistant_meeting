@@ -43,108 +43,17 @@ func NewTelegramBot(loggger *zap.Logger, token string, pollingPeriod int, ss *sa
 		lgr:         loggger,
 	}
 
-	b.Handle("/hello", func(c tele.Context) error {
-		user := c.Sender() // кто отправил команду
-		js, _ := json.Marshal(user)
-		fmt.Println(string(js))
-		return c.Send("Hello!")
-	})
+	//b.Handle("/start", bot.SaveUser)
+	//b.Handle("/list", bot.GetListUser)
+	//b.Handle("/get", bot.GetTextAudio)
+	//b.Handle("/chat", bot.GigaChatRequest)
+	//b.Handle("/find", bot.FindAudio)
 
-	b.Handle(tele.OnAudio, func(c tele.Context) error {
-		a := c.Message().Audio
-		if a == nil {
-			return c.Send("Аудио не найдено")
-		}
+	//b.Handle(tele.OnAudio, bot.handlerOnText)
 
-		filename := a.FileName
-		if filename == "" {
-			filename = "audio_" + a.FileID + ".bin"
-		}
+	b.Handle(tele.OnAudio, bot.handlerOnAudio)
 
-		err := ensureUploadDir("./downloads")
-		if err != nil {
-			c.Send("Не удалось создать папку ./downloads %s", err.Error())
-		}
-
-		path := filepath.Join("downloads", filename)
-
-		logger.Info("Путь " + path)
-
-		if err := c.Bot().Download(a.MediaFile(), path); err != nil {
-			return c.Send(fmt.Sprintf("Не удалось скачать аудио, %s", err.Error()))
-		}
-
-		in := &model.InputAudio{
-			FileName: filename,
-			MIME:     a.MIME,
-			IsVoice:  false,
-		}
-
-		task, err := salutSpeech.RecognizeFile(ctx, path, in)
-		if err != nil {
-			log.Fatal(err)
-		}
-		<-task.Done
-
-		return c.Send(fmt.Sprintf(
-			"Получил аудио\nНазвание: %s\nИсполнитель: %s\nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
-			a.Title,
-			a.Performer,
-			a.MIME,
-			a.Duration,
-			path,
-			task.Result[0:40],
-		))
-
-	})
-
-	b.Handle(tele.OnVoice, func(c tele.Context) error {
-		a := c.Message().Voice
-		if a == nil {
-			return c.Send("Аудио не найдено")
-		}
-
-		filename := "voice1" + guessVoiceExt(a.MIME)
-		if filename == "" {
-			filename = "audio_" + a.FileID + ".bin"
-		}
-
-		err := ensureUploadDir("./downloads")
-		if err != nil {
-			c.Send("Не удалось создать папку ./downloads %s", err.Error())
-		}
-
-		path := filepath.Join("downloads", filename)
-
-		logger.Info("Путь " + path)
-
-		if err := c.Bot().Download(a.MediaFile(), path); err != nil {
-			return c.Send(fmt.Sprintf("Не удалось скачать аудио, %s", err.Error()))
-		}
-
-		in := &model.InputAudio{
-			FileName: filename,
-			MIME:     a.MIME,
-			IsVoice:  true,
-		}
-
-		task, err := salutSpeech.RecognizeFile(ctx, path, in)
-		if err != nil {
-			log.Fatal(err)
-		}
-		<-task.Done
-
-		return c.Send(fmt.Sprintf(
-			"Получил аудио \nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
-			a.MIME,
-			a.Duration,
-			path,
-			task.Result[0:40],
-		))
-
-	})
-
-	return bot, nil
+	b.Handle(tele.OnVoice, bot.hanlerOnVoice)
 
 }
 
@@ -169,4 +78,98 @@ func guessVoiceExt(mime string) string {
 		return ".ogg"
 	}
 	return ".bin"
+}
+
+func (t *TelegramBot) hanlerOnVoice(c tele.Context) error {
+	a := c.Message().Voice
+	if a == nil {
+		return c.Send("Аудио не найдено")
+	}
+
+	filename := "voice1" + guessVoiceExt(a.MIME)
+	if filename == "" {
+		filename = "audio_" + a.FileID + ".bin"
+	}
+
+	err := ensureUploadDir("./downloads")
+	if err != nil {
+		c.Send("Не удалось создать папку ./downloads %s", err.Error())
+	}
+
+	path := filepath.Join("downloads", filename)
+
+	logger.Info("Путь " + path)
+
+	if err := c.Bot().Download(a.MediaFile(), path); err != nil {
+		return c.Send(fmt.Sprintf("Не удалось скачать аудио, %s", err.Error()))
+	}
+
+	in := &model.InputAudio{
+		FileName: filename,
+		MIME:     a.MIME,
+		IsVoice:  true,
+	}
+
+	task, err := salutSpeech.RecognizeFile(ctx, path, in)
+	if err != nil {
+		log.Fatal(err)
+	}
+	<-task.Done
+
+	return c.Send(fmt.Sprintf(
+		"Получил аудио \nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
+		a.MIME,
+		a.Duration,
+		path,
+		task.Result[0:40],
+	))
+
+}
+
+func (t *TelegramBot) handlerOnAudio(c tele.Context) error {
+	a := c.Message().Audio
+	if a == nil {
+		return c.Send("Аудио не найдено")
+	}
+
+	filename := a.FileName
+	if filename == "" {
+		filename = "audio_" + a.FileID + ".bin"
+	}
+
+	err := ensureUploadDir("./downloads")
+	if err != nil {
+		c.Send("Не удалось создать папку ./downloads %s", err.Error())
+	}
+
+	path := filepath.Join("downloads", filename)
+
+	logger.Info("Путь " + path)
+
+	if err := c.Bot().Download(a.MediaFile(), path); err != nil {
+		return c.Send(fmt.Sprintf("Не удалось скачать аудио, %s", err.Error()))
+	}
+
+	in := &model.InputAudio{
+		FileName: filename,
+		MIME:     a.MIME,
+		IsVoice:  false,
+	}
+
+	task, err := salutSpeech.RecognizeFile(ctx, path, in)
+	if err != nil {
+		log.Fatal(err)
+	}
+	<-task.Done
+
+	return c.Send(fmt.Sprintf(
+		"Получил аудио\nНазвание: %s\nИсполнитель: %s\nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
+		a.Title,
+		a.Performer,
+		a.MIME,
+		a.Duration,
+		path,
+		task.Result[0:40],
+	))
+
 }
