@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/google/uuid"
+	"github.com/konkovaanna23/assistant_meeting/internal/config"
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
 )
 
@@ -21,19 +23,15 @@ const (
 )
 
 type SalutSpeechClient struct {
-	client   *resty.Client
-	authHost string /*TODO сделать из конфигов*/
-	mainHost string /*TODO сделать из конфигов*/
-	authKey  string /*TODO сделать из конфигов*/
-	token    *ResponseToken
-	requests chan *Task
-	mx       sync.RWMutex
-	lgr      *zap.Logger
-}
-
-type ResponseToken struct {
-	Token       string `json:"access_token"`
-	ExpiresDate int64  `json:"expires_at"`
+	client        *resty.Client
+	authHost      string /*TODO сделать из конфигов*/
+	mainHost      string /*TODO сделать из конфигов*/
+	authKey       string /*TODO сделать из конфигов*/
+	token         *model.Token
+	requests      chan *Task
+	mx            sync.RWMutex
+	lgr           *zap.Logger
+	periodPolling time.Duration
 }
 
 type ResultID struct {
@@ -71,14 +69,15 @@ type ResponseRecognize struct {
 	Result *StatusTask `json:"result"`
 }
 
-func NewSalutSpeechClient(ctx context.Context, authHost, mainHost, authKey string, countWorkers int, sizeChanel int, logger *zap.Logger) (*SalutSpeechClient, error) {
+func NewSalutSpeechClient(ctx context.Context, setting *config.Setting, countWorkers, sizeChanel, periodPolling int, logger *zap.Logger) (*SalutSpeechClient, error) {
 	salutSpeech := &SalutSpeechClient{
-		client:   resty.New(),
-		authHost: authHost,
-		authKey:  authKey,
-		mainHost: mainHost,
-		requests: make(chan *Task, sizeChanel),
-		lgr:      logger,
+		client:        resty.New(),
+		authHost:      setting.Auth,
+		authKey:       setting.Token,
+		mainHost:      setting.Main,
+		requests:      make(chan *Task, sizeChanel),
+		lgr:           logger,
+		periodPolling: time.Duration(periodPolling) * time.Second,
 	}
 	responseToken, err := salutSpeech.GetToken()
 	if err != nil {
@@ -91,13 +90,13 @@ func NewSalutSpeechClient(ctx context.Context, authHost, mainHost, authKey strin
 	return salutSpeech, nil
 }
 
-func (ss *SalutSpeechClient) setToken(token *ResponseToken) {
+func (ss *SalutSpeechClient) setToken(token *model.Token) {
 	ss.mx.Lock()
 	defer ss.mx.Unlock()
 	ss.token = token
 }
-func (ss *SalutSpeechClient) GetToken() (*ResponseToken, error) {
-	rqUID := NewUUID()
+func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
+	rqUID := model.NewUUID()
 
 	response, err := ss.client.R().
 		SetHeader("Content-Type", "application/x-www-form-urlencoded").
@@ -117,17 +116,13 @@ func (ss *SalutSpeechClient) GetToken() (*ResponseToken, error) {
 		return nil, fmt.Errorf("%s", response.Body())
 	}
 
-	responseToken := &ResponseToken{}
+	responseToken := &model.Token{}
 
 	err = json.Unmarshal(response.Body(), &responseToken)
 	if err != nil {
 		return nil, fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
 	}
 	return responseToken, nil
-}
-
-func NewUUID() string {
-	return uuid.New().String()
 }
 
 func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string) (string, error) {
