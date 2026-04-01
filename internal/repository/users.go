@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"fmt"
+
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 )
 
 var insertUser string = `
@@ -10,7 +12,7 @@ var insertUser string = `
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING;
 	`
-var selectUserLogin string = `SELECT id, password FROM storage.users WHERE login = $1`
+var selectAudioForUser string = `SELECT id, path FROM users_audio WHERE user_id = $1`
 
 // CreateUser - добавление в users.
 func (ds *DBStore) CreateUser(ctx context.Context, id, chatid int64, username string) error {
@@ -23,19 +25,31 @@ func (ds *DBStore) CreateUser(ctx context.Context, id, chatid int64, username st
 	return nil
 }
 
-/*
-// GetUserByLogin - получение пользователя по логину.
-func (ds *userStore) GetUserByLogin(ctx context.Context, loginSrc string) (string, string, error) {
-	var id, password string
+// GetAudioListForUser -
+func (ds *DBStore) GetAudioListForUser(ctx context.Context, userID int64) ([]*model.AudioShort, error) {
+	var audioList []*model.AudioShort
 
-	err := ds.database.QueryRowxContext(ctx, selectUserLogin, loginSrc).Scan(&id, &password)
+	rows, err := ds.db.QueryContext(ctx, selectAudioForUser, userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", ErrorUserNotFound
+		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var audio model.AudioShort
+		err := rows.Scan(
+			&audio.ID,
+			&audio.Path,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка сканирования строки: %w", err)
 		}
-		return "", "", fmt.Errorf("ошибка получения пользователя из БД: %w", err)
+		audioList = append(audioList, &audio)
 	}
 
-	return id, password, nil
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка при чтении строк: %w", err)
+	}
+
+	return audioList, nil
 }
-*/

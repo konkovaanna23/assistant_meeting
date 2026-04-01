@@ -119,7 +119,7 @@ func (p *ProcessorBot) worker(ctx context.Context, workerID int) {
 			return
 
 		case job := <-p.jobs:
-			reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second) /*TODO конфиги*/
 
 			answer, err := p.process(reqCtx, &job)
 			cancel()

@@ -9,3 +9,8 @@ type InputAudio struct {
 	Channels     int    // 0 если неизвестно
 	HasWAVHeader bool   // true, если это .wav с заголовком
 }
+
+type AudioShort struct {
+	ID   string
+	Path string
+}
