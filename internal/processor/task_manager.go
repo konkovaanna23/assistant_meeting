@@ -48,7 +48,11 @@ func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, error) {
 }
 
 func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice bool, sourceFileName string, filePath string, mime string) (string, error) {
-	id := p.repo.CreateAudio(ctx, userID, sourceFileName)
+	id, err := p.repo.CreateAudio(ctx, userID, sourceFileName)
+	if err != nil {
+		p.lgr.Error("Ошибка создания ", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
+		return "", errors.New("ошибка распознавания файла")
+	}
 	in := &model.InputAudio{
 		AudioID:  id,
 		FileName: filePath,
@@ -58,8 +62,8 @@ func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice b
 
 	task, err := p.salutSpeech.RecognizeFile(ctx, in, p.repo.UpdateStatusTask)
 	if err != nil {
-		p.lgr.Error("Ошибка распознавания", zap.Error(error))
-		return errors.New("ошибка распознавания файла")
+		p.lgr.Error("Ошибка распознавания", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
+		return "", errors.New("ошибка распознавания файла")
 	}
 	<-task.Done
 
@@ -67,10 +71,12 @@ func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice b
 
 	result, err := p.gigachat.GetBriefExtract(task.Result)
 	if err != nil {
-		return errors.New("ошибка получения краткой выжимки")
+		p.lgr.Error("ошибка получения краткой выжимки", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
+
+		return "", errors.New("ошибка получения краткой выжимки")
 	}
 
-	p.repo.UpdateShortText(id, result)
+	p.repo.UpdateShortText(ctx context.Context, id, result)
 
 	return result, nil
 }

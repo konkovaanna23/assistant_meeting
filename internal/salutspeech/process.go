@@ -35,7 +35,10 @@ func (ss *SalutSpeechClient) worker(ctx context.Context, i int) {
 			return
 		case task := <-ss.requests:
 			ss.lgr.Debug("Запрос на ожидание статуса", zap.String("taskID", task.TaskID))
-			ss.waitResult(ctx, task)
+			if task.CtxTask.Err() == nil {
+				ss.waitResult(ctx, task)
+			}
+
 		}
 	}
 }
@@ -49,13 +52,16 @@ end:
 		case <-ctx.Done():
 			ss.lgr.Info("Выполнение прервано, статус по задаче не будет получен", zap.String("taskID", task.TaskID))
 			return
+		case <-task.CtxTask.Done():
+			ss.lgr.Info("Выполнение прервано, статус по задаче не будет получен", zap.String("taskID", task.TaskID))
+			return
 		default:
 			taskStatus, responseFileID, err := ss.GetStatusTask(task.TaskID)
 			if err != nil {
 				ss.lgr.Error("ошибка получения статуса", zap.Error(err))
 			} else {
 				if taskStatus != previousTaskStatus {
-					err := task.FunsSaveStatus(task.AudioID, task.TaskID, task.FileID, taskStatus)
+					err := task.FunsSaveStatus(task.CtxTask, task.AudioID, task.TaskID, task.FileID, taskStatus)
 					if err != nil {
 						ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
 					}
@@ -90,7 +96,7 @@ end:
 
 }
 
-func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *model.InputAudio, funsSaveStatus func(id, taskID, fileID, status string) error) (*model.Task, error) {
+func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *model.InputAudio, funsSaveStatus func(ctx context.Context, id, taskID, fileID, status string) error) (*model.Task, error) {
 	ss.lgr.Info("Запрос на распознавание файла", zap.String("file", inputAudio.FileName))
 
 	audioSpec, err := DetectAudioSpec(inputAudio)
@@ -120,9 +126,10 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *mode
 		Done:           make(chan struct{}),
 		ResponseFileID: taskStatus.ResponseFileID,
 		FunsSaveStatus: funsSaveStatus,
+		CtxTask:        ctx,
 	}
 
-	err = task.FunsSaveStatus(inputAudio.AudioID, taskStatus.ID, requestFileID, taskStatus.Status)
+	err = task.FunsSaveStatus(ctx, inputAudio.AudioID, taskStatus.ID, requestFileID, taskStatus.Status)
 	if err != nil {
 		ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus.Status))
 	}
