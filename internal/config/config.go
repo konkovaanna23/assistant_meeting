@@ -10,19 +10,24 @@ import (
 )
 
 const (
-	defaultCountWorkers  = 10
-	defaultSizeChannel   = 100
-	defaultPeriodPolling = 2
+	defaultCountWorkers   = 10
+	defaultSizeChannel    = 100
+	defaultPeriodPolling  = 2
+	defaultPollingBot     = 10
+	defaultContextTimeout = 1
 )
 
 // Config Конфигурация приложения.
 type Config struct {
-	TelegramToken string   `json:"token_telegram"`
-	CountWorkers  int      `json:"count_workers"`
-	SizeChannel   int      `json:"optimal_chan_size"`
-	PeriodPolling int      `json:"period_polling"`
-	SalutSpeech   *Setting `json:"salut_speech"`
-	GigaChat      *Setting `json:"giga_chat"`
+	TelegramToken  string   `json:"token_telegram"`
+	CountWorkers   int      `json:"count_workers"`
+	SizeChannel    int      `json:"optimal_chan_size"`
+	PeriodPolling  int      `json:"period_polling"`
+	SalutSpeech    *Setting `json:"salut_speech"`
+	GigaChat       *Setting `json:"giga_chat"`
+	DSN            string   `json:"DSN"`
+	PollingBot     int      `json:"polling_bot"`
+	ContextTimeout int      `json:"context_timeout"`
 }
 
 type Setting struct {
@@ -65,6 +70,14 @@ func GetConfig() (*Config, error) {
 		cfg.PeriodPolling = defaultPeriodPolling
 	}
 
+	if cfg.PollingBot == 0 {
+		cfg.PollingBot = defaultPollingBot
+	}
+
+	if cfg.ContextTimeout == 0 {
+		cfg.ContextTimeout = defaultContextTimeout
+	}
+
 	if cfg.TelegramToken == "" {
 		return nil, errors.New("не задан токен для telegram-bot")
 	}
@@ -75,6 +88,10 @@ func GetConfig() (*Config, error) {
 
 	if cfg.GigaChat == nil {
 		return nil, errors.New("не задан конфигурация для GigaChat")
+	}
+
+	if cfg.DSN == "" {
+		return nil, errors.New("не задан конфигурация для подключения к БД")
 	}
 
 	return cfg, nil

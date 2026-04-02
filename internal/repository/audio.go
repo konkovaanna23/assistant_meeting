@@ -15,6 +15,8 @@ var selectAudioByWord string = `SELECT a.id, a.path FROM users_audio a inner joi
 
 var ErrorNotContent = errors.New("data not found")
 
+var insertAudio string = `INSERT INTO users_audio(id, user_id, path) values($1,$2,$3)`
+
 func (ds *DBStore) GetAudioByID(ctx context.Context, userID int64, audioID string) (string, error) {
 	var text string
 
@@ -55,4 +57,15 @@ func (ds *DBStore) GetAudioByWord(ctx context.Context, userID int64, word string
 	}
 
 	return audioList, nil
+}
+
+func (ds *DBStore) CreateAudio(ctx context.Context, userID int64, file string) (string, error) {
+	id := model.NewUUID()
+
+	_, err := ds.db.ExecContext(ctx, insertAudio, id, userID, file)
+	if err != nil {
+		return "", fmt.Errorf("ошибка сохранения аудио: %w", err)
+	}
+
+	return id, nil
 }

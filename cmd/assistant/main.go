@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
+	"github.com/konkovaanna23/assistant_meeting/internal/config"
+	"github.com/konkovaanna23/assistant_meeting/internal/config/db"
+	gg "github.com/konkovaanna23/assistant_meeting/internal/gigachat"
+	"github.com/konkovaanna23/assistant_meeting/internal/processor"
+	"github.com/konkovaanna23/assistant_meeting/internal/repository"
+	ss "github.com/konkovaanna23/assistant_meeting/internal/salutspeech"
+	"go.uber.org/zap"
 	"log"
 	"os/signal"
 	"syscall"
-
-	"github.com/konkovaanna23/assistant_meeting/internal/config"
-	gg "github.com/konkovaanna23/assistant_meeting/internal/gigachat"
-	ss "github.com/konkovaanna23/assistant_meeting/internal/salutspeech"
-	"github.com/konkovaanna23/assistant_meeting/internal/telegram"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -38,16 +39,36 @@ func main() {
 		logger.Fatal("Ошибка создания gigachat", zap.Error(err))
 	}
 
-	tgBot, err := telegram.NewTelegramBot(logger, cfg.TelegramToken, 10, salutSpeech, gigaChat)
+	database, err := db.NewConnect(cfg.DSN)
 	if err != nil {
-		logger.Fatal("Ошибка создания telegram", zap.Error(err))
+		logger.Fatal("ошибка при подключении к базе данных:", zap.Error(err))
+	} else {
+		logger.Info("подключение к базе данных успешно")
+		if err := db.RunMigrations(cfg.DSN); err != nil {
+			logger.Fatal("ошибка при установке миграций:", zap.Error(err))
+		}
+	}
+
+	repo := repository.NewDBStore(logger.With(zap.String("component", "repository")), database)
+
+	processorBot, err := processor.NewProcessorBot(logger.With(zap.String("component", "processor")),
+		cfg.SizeChannel,
+		cfg.CountWorkers,
+		cfg.TelegramToken,
+		10,
+		salutSpeech,
+		gigaChat,
+		repo)
+
+	if err != nil {
+		logger.Fatal("Ошибка создания telegram bot", zap.Error(err))
 	}
 
 	logger.Info("Запуск AssistantMeeting...")
-	go tgBot.Start()
+	go processorBot.Start(ctx)
 
 	<-ctx.Done()
 
-	tgBot.Stop()
+	processorBot.Stop()
 	logger.Info("Сервер остановлен")
 }

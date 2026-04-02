@@ -40,23 +40,23 @@ func NewGigaChatClient(ctx context.Context, setting *config.Setting, logger *zap
 	return gigaChat, nil
 }
 
-func (ss *GigaChatClient) setToken(token *model.Token) {
-	ss.mx.Lock()
-	defer ss.mx.Unlock()
-	ss.token = token
+func (gg *GigaChatClient) setToken(token *model.Token) {
+	gg.mx.Lock()
+	defer gg.mx.Unlock()
+	gg.token = token
 }
-func (ss *GigaChatClient) GetToken() (*model.Token, error) {
+func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 	rqUID := model.NewUUID()
 
-	response, err := ss.client.R().
+	response, err := gg.client.R().
 		SetHeader("Content-Type", "application/x-www-form-urlencoded").
 		SetHeader("Accept", "application/json").
 		SetHeader("RqUID", rqUID).
-		SetHeader("Authorization", "Basic "+ss.authKey).
+		SetHeader("Authorization", "Basic "+gg.authKey).
 		SetFormData(map[string]string{
 			"scope": "SALUTE_SPEECH_PERS",
 		}).
-		Post(ss.authHost)
+		Post(gg.authHost)
 
 	if err != nil {
 		return nil, err
@@ -73,4 +73,8 @@ func (ss *GigaChatClient) GetToken() (*model.Token, error) {
 		return nil, fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
 	}
 	return responseToken, nil
+}
+
+func (gg *GigaChatClient) GetBriefExtract(text string) (string, error) {
+	return "", nil
 }

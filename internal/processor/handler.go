@@ -178,6 +178,12 @@ func (p *ProcessorBot) handlerOnAudio(c tele.Context) error {
 		c.Send("Не удалось определить имя файла")
 	}
 
+	userID := c.Sender().ID
+
+	ext := filepath.Ext(filename)             // .mp3
+	name := strings.TrimSuffix(filename, ext) // song
+	filename = fmt.Sprintf("%s_%d%s", name, userID, ext)
+
 	path := filepath.Join(dirDownloads, filename)
 
 	if err := c.Bot().Download(a.MediaFile(), path); err != nil {
@@ -187,10 +193,12 @@ func (p *ProcessorBot) handlerOnAudio(c tele.Context) error {
 	handler := "OnAudio"
 
 	job := Job{
-		UserID:   c.Sender().ID,
+		UserID:   userID,
 		Handler:  handler,
 		ChatID:   c.Chat().ID,
 		FilePath: path,
+		MIME:     a.MIME,
+		FileName: filename,
 	}
 
 	return p.createTask(c, job)

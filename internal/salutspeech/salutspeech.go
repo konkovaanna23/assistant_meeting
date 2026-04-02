@@ -24,11 +24,11 @@ const (
 
 type SalutSpeechClient struct {
 	client        *resty.Client
-	authHost      string /*TODO сделать из конфигов*/
-	mainHost      string /*TODO сделать из конфигов*/
-	authKey       string /*TODO сделать из конфигов*/
+	authHost      string
+	mainHost      string
+	authKey       string
 	token         *model.Token
-	requests      chan *Task
+	requests      chan *model.Task
 	mx            sync.RWMutex
 	lgr           *zap.Logger
 	periodPolling time.Duration
@@ -75,7 +75,7 @@ func NewSalutSpeechClient(ctx context.Context, setting *config.Setting, countWor
 		authHost:      setting.Auth,
 		authKey:       setting.Token,
 		mainHost:      setting.Main,
-		requests:      make(chan *Task, sizeChanel),
+		requests:      make(chan *model.Task, sizeChanel),
 		lgr:           logger,
 		periodPolling: time.Duration(periodPolling) * time.Second,
 	}

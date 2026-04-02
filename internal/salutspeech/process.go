@@ -16,17 +16,6 @@ var endStatuses = map[string]bool{
 	"ERROR":    true,
 }
 
-type Task struct {
-	PathFile       string
-	FileID         string
-	TaskID         string
-	Status         string
-	Done           chan struct{}
-	Result         string
-	ErrorMessage   string
-	ResponseFileID string
-}
-
 func isDone(status string) bool {
 	return status == "DONE"
 }
@@ -51,8 +40,9 @@ func (ss *SalutSpeechClient) worker(ctx context.Context, i int) {
 	}
 }
 
-func (ss *SalutSpeechClient) waitResult(ctx context.Context, task *Task) {
+func (ss *SalutSpeechClient) waitResult(ctx context.Context, task *model.Task) {
 	defer close(task.Done)
+	previousTaskStatus := task.Status
 end:
 	for {
 		select {
@@ -61,10 +51,16 @@ end:
 			return
 		default:
 			taskStatus, responseFileID, err := ss.GetStatusTask(task.TaskID)
-
 			if err != nil {
 				ss.lgr.Error("ошибка получения статуса", zap.Error(err))
 			} else {
+				if taskStatus != previousTaskStatus {
+					err := task.FunsSaveStatus(task.AudioID, task.TaskID, task.FileID, taskStatus)
+					if err != nil {
+						ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
+					}
+					previousTaskStatus = taskStatus
+				}
 				ss.lgr.Debug("Получен статус задачи", zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
 				task.Status = taskStatus
 				task.ResponseFileID = responseFileID
@@ -72,7 +68,7 @@ end:
 					break end
 				}
 			}
-			time.Sleep(time.Duration(2) * time.Second) /*TODO в конфиги*/
+			time.Sleep(time.Duration(ss.periodPolling) * time.Second) /*TODO в конфиги*/
 		}
 
 	}
@@ -94,14 +90,14 @@ end:
 
 }
 
-func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string, inputAudio *model.InputAudio) (*Task, error) {
-	ss.lgr.Info("Запрос на распознавание файла", zap.String("file", pathFile))
+func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *model.InputAudio, funsSaveStatus func(id, taskID, fileID, status string) error) (*model.Task, error) {
+	ss.lgr.Info("Запрос на распознавание файла", zap.String("file", inputAudio.FileName))
 
 	audioSpec, err := DetectAudioSpec(inputAudio)
 	if err != nil {
 		return nil, err
 	}
-	requestFileID, err := ss.UploadFile(pathFile, audioSpec.ContentType)
+	requestFileID, err := ss.UploadFile(inputAudio.FileName, audioSpec.ContentType)
 	if err != nil {
 		log.Printf("ошибка загрузки файла %s", err.Error())
 		return nil, err
@@ -117,14 +113,19 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, pathFile string,
 
 	ss.lgr.Debug("Установлена задача на распознавание", zap.String("taskID", taskStatus.ID))
 
-	task := &Task{FileID: requestFileID,
-		PathFile:       pathFile,
+	task := &model.Task{FileID: requestFileID,
+		PathFile:       inputAudio.FileName,
 		TaskID:         taskStatus.ID,
 		Status:         taskStatus.Status,
 		Done:           make(chan struct{}),
 		ResponseFileID: taskStatus.ResponseFileID,
+		FunsSaveStatus: funsSaveStatus,
 	}
 
+	err = task.FunsSaveStatus(inputAudio.AudioID, taskStatus.ID, requestFileID, taskStatus.Status)
+	if err != nil {
+		ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus.Status))
+	}
 	ss.lgr.Debug("Получен статус", zap.String("taskID", taskStatus.ID), zap.String("status", taskStatus.Status))
 
 	if endStatuses[task.Status] {

@@ -24,6 +24,8 @@ type Job struct {
 	KeyWord  string
 	Handler  string
 	FilePath string
+	MIME     string
+	FileName string
 }
 
 type ProcessorBot struct {
