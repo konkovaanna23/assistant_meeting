@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 )
@@ -23,6 +24,14 @@ var updateShortTextAudio string = `update users_audio
 								set  result_short=$2,updated_at=NOW()
 								where id=$1`
 
+var updateResult string = `update users_audio 
+								set  result=$2, result_text=$3, updated_at=NOW()
+								where id=$1`
+
+var insertWords string = `
+				INSERT INTO users_audio_words (id, word)
+				VALUES %s
+			`
 var ErrorNotContent = errors.New("data not found")
 
 func (ds *DBStore) GetAudioByID(ctx context.Context, userID int64, audioID string) (string, error) {
@@ -99,11 +108,66 @@ func (ds *DBStore) UpdateStatusTask(ctx context.Context, id, taskID, fileID, sta
 	return id, nil
 }*/
 
-func (ds *DBStore) UpdateShortText(ctx context.Context, id int64, text string) error {
+func (ds *DBStore) UpdateShortText(ctx context.Context, id string, text string) error {
 
 	_, err := ds.db.ExecContext(ctx, updateShortTextAudio, id, text)
 	if err != nil {
 		return fmt.Errorf("ошибка обновления краткой выжимки аудио: %w", err)
+	}
+
+	return nil
+}
+
+func (ds *DBStore) SaveResult(ctx context.Context, id string, resultJson string, result *model.CombinedResult) error {
+	tx, err := ds.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	res, err := tx.ExecContext(ctx, updateResult, id, resultJson, result.NormalizedText, id)
+	if err != nil {
+		return fmt.Errorf("обновление результата выполнено с ошибкой: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("row with id=%d not found", id)
+	}
+
+	if len(result.WordAlignments) > 0 {
+		valueParts := make([]string, 0, len(result.WordAlignments))
+		args := make([]any, 0, len(result.WordAlignments)*2)
+
+		for _, wa := range result.WordAlignments {
+			word := strings.TrimSpace(wa.Word)
+			if word == "" {
+				continue
+			}
+
+			valueParts = append(valueParts, "(?, ?)")
+			args = append(args, id, word)
+		}
+
+		if len(valueParts) > 0 {
+			insertQuery := fmt.Sprintf(insertWords, strings.Join(valueParts, ","))
+			insertQuery = tx.Rebind(insertQuery)
+
+			if _, err = tx.ExecContext(ctx, insertQuery, args...); err != nil {
+				return fmt.Errorf("insert words: %w", err)
+			}
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 
 	return nil

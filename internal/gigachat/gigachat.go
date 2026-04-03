@@ -13,6 +13,14 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	endpointCompletions = "/chat/completions"
+)
+
+var prompt string = `
+
+`
+
 type GigaChatClient struct {
 	client   *resty.Client
 	authHost string /*TODO сделать из конфигов*/

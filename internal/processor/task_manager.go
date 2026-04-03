@@ -3,10 +3,8 @@ package processor
 import (
 	"context"
 	"errors"
-
-	"github.com/gogo/protobuf/plugin/stringer"
+	"fmt"
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
-	"github.com/ydb-platform/ydb-go-sdk/v3/table/result"
 	"go.uber.org/zap"
 )
 
@@ -67,16 +65,31 @@ func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice b
 	}
 	<-task.Done
 
-	p.saveResultAudio(id, task.Result)
+	text, err := p.saveResultAudio(ctx, id, task.Result)
 
-	result, err := p.gigachat.GetBriefExtract(task.Result)
+	result, err := p.gigachat.GetBriefExtract(text)
 	if err != nil {
 		p.lgr.Error("ошибка получения краткой выжимки", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
 
 		return "", errors.New("ошибка получения краткой выжимки")
 	}
 
-	p.repo.UpdateShortText(ctx context.Context, id, result)
+	p.repo.UpdateShortText(ctx, id, result)
 
 	return result, nil
+}
+
+func (p *ProcessorBot) saveResultAudio(ctx context.Context, id string, resultJson string) (string, error) {
+	result, err := BuildCombinedJSON(resultJson)
+	if err != nil {
+		p.lgr.Error("Ошибка парсинга результата", zap.String("AudioID", id), zap.Error(err))
+
+		return "", fmt.Errorf("ошибка парсинга результата %s", err.Error())
+	}
+	err = p.repo.SaveResult(ctx, id, resultJson, result)
+	if err != nil {
+		p.lgr.Error("Ошибка сохранения результата", zap.String("AudioID", id), zap.Error(err))
+		return "", fmt.Errorf("ошибка сохранения результата %s", err.Error())
+	}
+	return result.NormalizedText, nil
 }
