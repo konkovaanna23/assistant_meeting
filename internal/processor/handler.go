@@ -118,6 +118,7 @@ func (p *ProcessorBot) hanlerOnVoice(c tele.Context) error {
 		Handler:  handler,
 		ChatID:   c.Chat().ID,
 		FilePath: path,
+		FileName: filename,
 	}
 
 	return p.createTask(c, job)

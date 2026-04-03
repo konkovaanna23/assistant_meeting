@@ -17,9 +17,8 @@ const (
 	endpointCompletions = "/chat/completions"
 )
 
-var prompt string = `
-
-`
+var promptAudio string = `Сделай краткую выжимку из расшифровки совещания: суть обсуждения, ключевые решения, договоренности, задачи, ответственные и сроки. Коротко, структурированно, без воды, ничего не додумывай. Из этого текста `
+var promptVoice string = `Сделай краткую выжимку из расшифровки голосового сообщения: суть, важные факты, просьбы/поручения, следующие действия. Коротко, без воды, ничего не додумывай. `
 
 type GigaChatClient struct {
 	client   *resty.Client
@@ -29,6 +28,26 @@ type GigaChatClient struct {
 	token    *model.Token
 	mx       sync.RWMutex
 	lgr      *zap.Logger
+}
+
+type GigaChatRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float64   `json:"temperature"`
+	MaxTokens   int       `json:"max_tokens"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type GigaChatResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
 }
 
 func NewGigaChatClient(ctx context.Context, setting *config.Setting, logger *zap.Logger) (*GigaChatClient, error) {
@@ -62,7 +81,7 @@ func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 		SetHeader("RqUID", rqUID).
 		SetHeader("Authorization", "Basic "+gg.authKey).
 		SetFormData(map[string]string{
-			"scope": "SALUTE_SPEECH_PERS",
+			"scope": "GIGACHAT_API_PERS",
 		}).
 		Post(gg.authHost)
 
@@ -83,6 +102,59 @@ func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 	return responseToken, nil
 }
 
-func (gg *GigaChatClient) GetBriefExtract(text string) (string, error) {
-	return "", nil
+func (gg *GigaChatClient) GetCurrentToken() string {
+	gg.mx.RLock()
+	defer gg.mx.RUnlock()
+	return gg.token.Token
+}
+
+func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, error) {
+	promptRequest := ""
+	if isVoice {
+		promptRequest = promptVoice + text
+	} else {
+		promptRequest = promptAudio + text
+	}
+
+	reqBody := &GigaChatRequest{
+		Model: "GigaChat",
+		Messages: []Message{
+			{Role: "user", Content: promptRequest},
+		},
+		Temperature: 0.5,
+		MaxTokens:   1024,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	gg.client.SetDebug(true)
+
+	response, err := gg.client.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", "Bearer "+gg.GetCurrentToken()).
+		SetBody(body).
+		Post(gg.mainHost + endpointCompletions)
+
+	if err != nil {
+		return "", err
+	}
+
+	if response.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("%s", response.Body())
+	}
+
+	responseGG := &GigaChatResponse{}
+
+	err = json.Unmarshal(response.Body(), &responseGG)
+	if err != nil {
+		return "", fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
+	}
+	if len(responseGG.Choices) > 0 {
+		return responseGG.Choices[0].Message.Content, nil
+	}
+
+	return "Нет ответа", nil
 }

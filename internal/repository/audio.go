@@ -10,26 +10,26 @@ import (
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 )
 
-var selectAudioByID string = `SELECT result_short FROM users_audio WHERE user_id = $1 and id=$2`
+var selectAudioByID string = `SELECT result_short FROM recognition.users_audio WHERE user_id = $1 and id=$2`
 
-var selectAudioByWord string = `SELECT a.id, a.path FROM users_audio a inner join users_audio_words w on w.id=a.id WHERE a.user_id = $1 and word=$2`
+var selectAudioByWord string = `SELECT a.id, a.path FROM recognition.users_audio a inner join recognition.users_audio_words w on w.id=a.id WHERE a.user_id = $1 and word=$2 and status='DONE'`
 
-var insertAudio string = `INSERT INTO users_audio(id, user_id, path) values($1,$2,$3)`
+var insertAudio string = `INSERT INTO recognition.users_audio(id, user_id, path, is_voice) values($1,$2,$3,$4)`
 
-var updateStatusAudio string = `update users_audio 
+var updateStatusAudio string = `update recognition.users_audio 
 								set  file_id=$2,task_id=$3,status=$4,updated_at=NOW()
 								where id=$1`
 
-var updateShortTextAudio string = `update users_audio 
+var updateShortTextAudio string = `update recognition.users_audio 
 								set  result_short=$2,updated_at=NOW()
 								where id=$1`
 
-var updateResult string = `update users_audio 
+var updateResult string = `update recognition.users_audio 
 								set  result=$2, result_text=$3, updated_at=NOW()
 								where id=$1`
 
 var insertWords string = `
-				INSERT INTO users_audio_words (id, word)
+				INSERT INTO recognition.users_audio_words (id, word)
 				VALUES %s
 			`
 var ErrorNotContent = errors.New("data not found")
@@ -51,7 +51,7 @@ func (ds *DBStore) GetAudioByID(ctx context.Context, userID int64, audioID strin
 func (ds *DBStore) GetAudioByWord(ctx context.Context, userID int64, word string) ([]*model.AudioShort, error) {
 	var audioList []*model.AudioShort
 
-	rows, err := ds.db.QueryContext(ctx, selectAudioByWord, userID)
+	rows, err := ds.db.QueryContext(ctx, selectAudioByWord, userID, word)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
 	}
@@ -76,10 +76,10 @@ func (ds *DBStore) GetAudioByWord(ctx context.Context, userID int64, word string
 	return audioList, nil
 }
 
-func (ds *DBStore) CreateAudio(ctx context.Context, userID int64, file string) (string, error) {
+func (ds *DBStore) CreateAudio(ctx context.Context, userID int64, file string, isVoice bool) (string, error) {
 	id := model.NewUUID()
 
-	_, err := ds.db.ExecContext(ctx, insertAudio, id, userID, file)
+	_, err := ds.db.ExecContext(ctx, insertAudio, id, userID, file, isVoice)
 	if err != nil {
 		return "", fmt.Errorf("ошибка сохранения аудио: %w", err)
 	}
@@ -88,25 +88,14 @@ func (ds *DBStore) CreateAudio(ctx context.Context, userID int64, file string) (
 }
 
 func (ds *DBStore) UpdateStatusTask(ctx context.Context, id, taskID, fileID, status string) error {
-
-	_, err := ds.db.ExecContext(ctx, updateStatusAudio, id, fileID, taskID, status)
+	fmt.Println("Обновление статуса задачи ", id, status)
+	_, err := ds.db.ExecContext(ctx, updateStatusAudio, id, toNullString(fileID), toNullString(taskID), status)
 	if err != nil {
 		return fmt.Errorf("ошибка обновления статуса аудио: %w", err)
 	}
 
 	return nil
 }
-
-/*func (ds *DBStore) UpdateResult(ctx context.Context, userID int64, file string) (string, error) {
-	id := model.NewUUID()
-
-	_, err := ds.db.ExecContext(ctx, insertAudio, id, userID, file)
-	if err != nil {
-		return "", fmt.Errorf("ошибка сохранения аудио: %w", err)
-	}
-
-	return id, nil
-}*/
 
 func (ds *DBStore) UpdateShortText(ctx context.Context, id string, text string) error {
 
@@ -129,7 +118,7 @@ func (ds *DBStore) SaveResult(ctx context.Context, id string, resultJson string,
 		}
 	}()
 
-	res, err := tx.ExecContext(ctx, updateResult, id, resultJson, result.NormalizedText, id)
+	res, err := tx.ExecContext(ctx, updateResult, id, resultJson, result.NormalizedText)
 	if err != nil {
 		return fmt.Errorf("обновление результата выполнено с ошибкой: %w", err)
 	}
@@ -171,4 +160,11 @@ func (ds *DBStore) SaveResult(ctx context.Context, id string, resultJson string,
 	}
 
 	return nil
+}
+
+func toNullString(s string) sql.NullString {
+	return sql.NullString{
+		String: s,
+		Valid:  s != "",
+	}
 }

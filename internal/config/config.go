@@ -25,7 +25,7 @@ type Config struct {
 	PeriodPolling  int      `json:"period_polling"`
 	SalutSpeech    *Setting `json:"salut_speech"`
 	GigaChat       *Setting `json:"giga_chat"`
-	DSN            string   `json:"DSN"`
+	DSN            string   `json:"dsn"`
 	PollingBot     int      `json:"polling_bot"`
 	ContextTimeout int      `json:"context_timeout"`
 }
@@ -48,9 +48,10 @@ func GetConfig() (*Config, error) {
 		}
 	})
 
+	configPath = "config.json"
 	configText, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("невозможно прочитать файл %s:%s", configPath, err.Error())
 	}
 
 	cfg := &Config{}

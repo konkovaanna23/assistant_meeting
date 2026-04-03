@@ -8,11 +8,11 @@ import (
 )
 
 var insertUser string = `
-		INSERT INTO users (id, chat_id, username)
+		INSERT INTO recognition.users (id, chat_id, username)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING;
 	`
-var selectAudioForUser string = `SELECT id, path FROM users_audio WHERE user_id = $1`
+var selectAudioForUser string = `SELECT id, path FROM recognition.users_audio WHERE user_id = $1`
 
 // CreateUser - добавление в users.
 func (ds *DBStore) CreateUser(ctx context.Context, id, chatid int64, username string) error {

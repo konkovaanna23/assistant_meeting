@@ -15,7 +15,7 @@ func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return "", nil
+		return "Привет! AssistantMeeting готов к работе", nil
 	case "/get":
 		result, err := p.repo.GetAudioByID(ctx, job.UserID, job.IdAudio)
 		if err != nil {
@@ -46,7 +46,7 @@ func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, error) {
 }
 
 func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice bool, sourceFileName string, filePath string, mime string) (string, error) {
-	id, err := p.repo.CreateAudio(ctx, userID, sourceFileName)
+	id, err := p.repo.CreateAudio(ctx, userID, sourceFileName, isVoice)
 	if err != nil {
 		p.lgr.Error("Ошибка создания ", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
 		return "", errors.New("ошибка распознавания файла")
@@ -67,7 +67,7 @@ func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice b
 
 	text, err := p.saveResultAudio(ctx, id, task.Result)
 
-	result, err := p.gigachat.GetBriefExtract(text)
+	result, err := p.gigachat.GetBriefExtract(text, isVoice)
 	if err != nil {
 		p.lgr.Error("ошибка получения краткой выжимки", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
 

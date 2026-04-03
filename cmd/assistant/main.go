@@ -34,7 +34,7 @@ func main() {
 		logger.Fatal("Ошибка создания salut speech", zap.Error(err))
 	}
 
-	gigaChat, err := gg.NewGigaChatClient(ctx, cfg.SalutSpeech, logger.With(zap.String("component", "gigachat")))
+	gigaChat, err := gg.NewGigaChatClient(ctx, cfg.GigaChat, logger.With(zap.String("component", "gigachat")))
 	if err != nil {
 		logger.Fatal("Ошибка создания gigachat", zap.Error(err))
 	}

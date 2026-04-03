@@ -63,7 +63,7 @@ end:
 				if taskStatus != previousTaskStatus {
 					err := task.FunsSaveStatus(task.CtxTask, task.AudioID, task.TaskID, task.FileID, taskStatus)
 					if err != nil {
-						ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
+						ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus), zap.Error(err))
 					}
 					previousTaskStatus = taskStatus
 				}
@@ -74,7 +74,7 @@ end:
 					break end
 				}
 			}
-			time.Sleep(time.Duration(ss.periodPolling) * time.Second) /*TODO в конфиги*/
+			time.Sleep(ss.periodPolling) /*TODO в конфиги*/
 		}
 
 	}
@@ -131,7 +131,7 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *mode
 
 	err = task.FunsSaveStatus(ctx, inputAudio.AudioID, taskStatus.ID, requestFileID, taskStatus.Status)
 	if err != nil {
-		ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus.Status))
+		ss.lgr.Debug("Ошибка сохранения статус задачи", zap.String("AudioID", task.AudioID), zap.String("taskID", task.TaskID), zap.String("status", taskStatus.Status), zap.Error(err))
 	}
 	ss.lgr.Debug("Получен статус", zap.String("taskID", taskStatus.ID), zap.String("status", taskStatus.Status))
 
