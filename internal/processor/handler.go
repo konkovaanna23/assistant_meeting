@@ -123,26 +123,6 @@ func (p *ProcessorBot) hanlerOnVoice(c tele.Context) error {
 
 	return p.createTask(c, job)
 
-	/*in := &model.InputAudio{
-		FileName: filename,
-		MIME:     a.MIME,
-		IsVoice:  true,
-	}
-
-	task, err := salutSpeech.RecognizeFile(ctx, path, in)
-	if err != nil {
-		log.Fatal(err)
-	}
-	<-task.Done
-
-	return c.Send(fmt.Sprintf(
-		"Получил аудио \nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
-		a.MIME,
-		a.Duration,
-		path,
-		task.Result[0:40],
-	))*/
-
 }
 
 func ensureUploadDir(basePath string) error {
@@ -203,26 +183,12 @@ func (p *ProcessorBot) handlerOnAudio(c tele.Context) error {
 	}
 
 	return p.createTask(c, job)
-	/*	in := &model.InputAudio{
-			FileName: filename,
-			MIME:     a.MIME,
-			IsVoice:  false,
-		}
+}
 
-		task, err := salutSpeech.RecognizeFile(ctx, path, in)
-		if err != nil {
-			log.Fatal(err)
-		}
-		<-task.Done
+func (p *ProcessorBot) GigaChatRequest(c tele.Context) error {
+	return c.Send("Будет реализовано позже")
+}
 
-		return c.Send(fmt.Sprintf(
-			"Получил аудио\nНазвание: %s\nИсполнитель: %s\nMIME: %s\nДлительность: %d сек\nСохранил: %s, %s",
-			a.Title,
-			a.Performer,
-			a.MIME,
-			a.Duration,
-			path,
-			task.Result[0:40],
-		))*/
-
+func (p *ProcessorBot) handlerOnText(c tele.Context) error {
+	return c.Send("Будет реализовано позже")
 }

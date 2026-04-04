@@ -80,10 +80,10 @@ func (p *ProcessorBot) newTeleBot(token string, pollingPeriod int) (*tele.Bot, e
 	b.Handle("/start", p.SaveUser)
 	b.Handle("/list", p.GetListAudio)
 	b.Handle("/get", p.GetTextAudio)
-	//b.Handle("/chat", bot.GigaChatRequest)
+	b.Handle("/chat", p.GigaChatRequest)
 	b.Handle("/find", p.FindAudio)
 
-	//b.Handle(tele.OnAudio, bot.handlerOnText)
+	b.Handle(tele.OnText, p.handlerOnText)
 
 	b.Handle(tele.OnAudio, p.handlerOnAudio)
 

@@ -160,7 +160,7 @@ func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string
 func (ss *SalutSpeechClient) GetCurrentToken() string {
 	ss.mx.RLock()
 	defer ss.mx.RUnlock()
-	return ss.token.Token
+	return ss.token.Token /*TODO сделать перевыпуск токена*/
 }
 
 func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string, channels int, sampleRate int) (*StatusTask, error) {
@@ -264,14 +264,10 @@ func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 		return "", fmt.Errorf("%s", response.Body())
 	}
 
-	contentType := response.Header().Get("Content-Type")
-	fmt.Printf("Content-Type: %s\n", contentType)
-
 	err = saveBinaryResult(response.Body(), "./result.txt")
 	if err != nil {
 		ss.lgr.Error(err.Error())
 	}
-	fmt.Println("Бинарный результат сохранён: ./result.txt")
 
 	/*TODO добавить обработку всех статусов*/
 	return response.String(), nil
