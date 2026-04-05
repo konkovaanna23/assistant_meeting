@@ -3,6 +3,7 @@ package salutspeech
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -61,7 +62,8 @@ type StatusTask struct {
 	CreatedAt      string `json:"created_at,omitempty"`
 	UpdatedAt      string `json:"updated_at,omitempty"`
 	Status         string `json:"status"`
-	ResponseFileID string `json:"response_file_id"`
+	ResponseFileID string `json:"response_file_id,omitempty"`
+	MsgError       string `json:"error,omitempty"`
 }
 
 type ResponseRecognize struct {
@@ -78,12 +80,12 @@ func NewSalutSpeechClient(ctx context.Context, setting *config.Setting, countWor
 		requests:      make(chan *model.Task, sizeChanel),
 		lgr:           logger,
 		periodPolling: time.Duration(periodPolling) * time.Second,
+		token:         &model.Token{},
 	}
-	responseToken, err := salutSpeech.GetToken()
+	/*err := salutSpeech.refreshToken()
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения токена: %s", err.Error())
-	}
-	salutSpeech.setToken(responseToken)
+	}*/
 
 	salutSpeech.StartWorkers(ctx, countWorkers)
 
@@ -95,6 +97,17 @@ func (ss *SalutSpeechClient) setToken(token *model.Token) {
 	defer ss.mx.Unlock()
 	ss.token = token
 }
+
+func (ss *SalutSpeechClient) refreshToken() error {
+	responseToken, err := ss.GetToken()
+	if err != nil {
+		return err
+	}
+	ss.setToken(responseToken)
+
+	return nil
+}
+
 func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
 	rqUID := model.NewUUID()
 
@@ -125,23 +138,40 @@ func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
 	return responseToken, nil
 }
 
+func (ss *SalutSpeechClient) DoWithRetry(req *resty.Request, method, url string) (*resty.Response, error) {
+	resp, err := req.Execute(method, url)
+
+	if err == nil && resp.StatusCode() != 401 {
+		return resp, err
+	}
+
+	if errRefresh := ss.refreshToken(); errRefresh != nil {
+		return nil, fmt.Errorf("не удалось обновить токен: %w", errRefresh)
+	}
+
+	req.SetHeader("Authorization", "Bearer "+ss.GetCurrentToken())
+
+	return req.Execute(method, url)
+}
+
 func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string) (string, error) {
 
-	response, err := ss.client.R().
+	response, err := ss.DoWithRetry(ss.client.R().
 		SetHeader("Content-Type", contentType).
 		SetFile("audio", audioFilePath).
 		SetHeader("Accept", "application/json").
-		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
-		Post(ss.mainHost + endpointsUpload)
+		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()),
+		"POST",
+		ss.mainHost+endpointsUpload)
 
 	if err != nil {
 		return "", err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("%s", response.Body())
+		ss.lgr.Error("ошибка запроса UploadFile", zap.Int("StatusCode", response.StatusCode()), zap.String("Bode", response.String()))
+		return "", getErr(response.StatusCode())
 	}
-
 	responseUpload := &ResponseUploadFile{}
 
 	err = json.Unmarshal(response.Body(), &responseUpload)
@@ -160,7 +190,7 @@ func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string
 func (ss *SalutSpeechClient) GetCurrentToken() string {
 	ss.mx.RLock()
 	defer ss.mx.RUnlock()
-	return ss.token.Token /*TODO сделать перевыпуск токена*/
+	return ss.token.Token
 }
 
 func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string, channels int, sampleRate int) (*StatusTask, error) {
@@ -188,18 +218,20 @@ func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string,
 		return nil, fmt.Errorf("некорректный формат запроса %s", err.Error())
 	}
 
-	response, err := ss.client.R().
+	response, err := ss.DoWithRetry(ss.client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
-		SetBody(requestJson).
-		Post(ss.mainHost + endpointsRecognize)
+		SetBody(requestJson),
+		"POST",
+		ss.mainHost+endpointsRecognize)
 
 	if err != nil {
 		return nil, err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("%s", response.Body())
+		ss.lgr.Error("ошибка запроса CreateTaskRecognize", zap.Int("StatusCode", response.StatusCode()), zap.String("Bode", response.String()))
+		return nil, getErr(response.StatusCode())
 	}
 
 	responseRecognize := &ResponseRecognize{}
@@ -208,60 +240,60 @@ func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string,
 	if err != nil {
 		return nil, fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
 	}
-	/*TODO добавить обработку всех статусов*/
-	if responseRecognize.Status == 200 {
-		return responseRecognize.Result, nil
-	} else {
-		return nil, fmt.Errorf("Некорректный ответ: %s", response.String())
-	}
+
+	return responseRecognize.Result, nil
 
 }
 
-func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, string, error) {
+func (ss *SalutSpeechClient) GetStatusTask(taskID string) (string, string, string, error) {
 
-	response, err := ss.client.R().
+	response, err := ss.DoWithRetry(ss.client.R().
 		SetHeader("Accept", "application/octet-stream").
 		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
 		SetQueryParams(map[string]string{
 			"id": taskID,
-		}).
-		Get(ss.mainHost + endpointsGetStatus)
+		}),
+		"GET",
+		ss.mainHost+endpointsGetStatus)
 
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return "", "", fmt.Errorf("%s", response.Body())
+		ss.lgr.Error("ошибка запроса GetStatusTask", zap.Int("StatusCode", response.StatusCode()), zap.String("Bode", response.String()))
+		return "", "", "", getErr(response.StatusCode())
 	}
 
 	responseStatus := &ResponseRecognize{}
 
 	err = json.Unmarshal(response.Body(), &responseStatus)
 	if err != nil {
-		return "", "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
+		return "", "", "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err, response.String())
 	}
-	/*TODO добавить обработку всех статусов*/
-	return responseStatus.Result.Status, responseStatus.Result.ResponseFileID, nil
+
+	return responseStatus.Result.Status, responseStatus.Result.ResponseFileID, responseStatus.Result.MsgError, nil
 
 }
 
 func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 
-	response, err := ss.client.R().
+	response, err := ss.DoWithRetry(ss.client.R().
 		SetHeader("Accept", "application/octet-stream").
 		SetHeader("Authorization", "Bearer "+ss.GetCurrentToken()).
 		SetQueryParams(map[string]string{
 			"response_file_id": fileID,
-		}).
-		Get(ss.mainHost + endpointsGetData)
+		}),
+		"GET",
+		ss.mainHost+endpointsGetData)
 
 	if err != nil {
 		return "", err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("%s", response.Body())
+		ss.lgr.Error("ошибка запроса GetData", zap.Int("StatusCode", response.StatusCode()), zap.String("Bode", response.String()))
+		return "", getErr(response.StatusCode())
 	}
 
 	err = saveBinaryResult(response.Body(), "./result.txt")
@@ -269,11 +301,24 @@ func (ss *SalutSpeechClient) GetData(fileID string) (string, error) {
 		ss.lgr.Error(err.Error())
 	}
 
-	/*TODO добавить обработку всех статусов*/
 	return response.String(), nil
 
 }
 
 func saveBinaryResult(data []byte, path string) error {
 	return os.WriteFile(path, data, 0644)
+}
+
+func getErr(statusCode int) error {
+
+	switch statusCode {
+	case 400:
+		return errors.New("некорректный формат запроса")
+	case 401:
+		return errors.New("ошибка аторизации")
+	case 413:
+		return errors.New("превышен максимальный размер входных данных.")
+	default:
+		return errors.New("Internal Server Error")
+	}
 }

@@ -56,7 +56,7 @@ end:
 			ss.lgr.Info("Выполнение прервано, статус по задаче не будет получен", zap.String("taskID", task.TaskID))
 			return
 		default:
-			taskStatus, responseFileID, err := ss.GetStatusTask(task.TaskID)
+			taskStatus, responseFileID, errMessage, err := ss.GetStatusTask(task.TaskID)
 			if err != nil {
 				ss.lgr.Error("ошибка получения статуса", zap.Error(err))
 			} else {
@@ -67,14 +67,14 @@ end:
 					}
 					previousTaskStatus = taskStatus
 				}
-				ss.lgr.Debug("Получен статус задачи", zap.String("taskID", task.TaskID), zap.String("status", taskStatus))
+				ss.lgr.Debug("Получен статус задачи", zap.String("taskID", task.TaskID), zap.String("status", taskStatus), zap.String("message_error", errMessage))
 				task.Status = taskStatus
 				task.ResponseFileID = responseFileID
 				if endStatuses[taskStatus] {
 					break end
 				}
 			}
-			time.Sleep(ss.periodPolling) /*TODO в конфиги*/
+			time.Sleep(ss.periodPolling)
 		}
 
 	}
@@ -127,6 +127,7 @@ func (ss *SalutSpeechClient) RecognizeFile(ctx context.Context, inputAudio *mode
 		ResponseFileID: taskStatus.ResponseFileID,
 		FunsSaveStatus: funsSaveStatus,
 		CtxTask:        ctx,
+		AudioID:        inputAudio.AudioID,
 	}
 
 	err = task.FunsSaveStatus(ctx, inputAudio.AudioID, taskStatus.ID, requestFileID, taskStatus.Status)

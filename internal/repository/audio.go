@@ -89,6 +89,7 @@ func (ds *DBStore) CreateAudio(ctx context.Context, userID int64, file string, i
 
 func (ds *DBStore) UpdateStatusTask(ctx context.Context, id, taskID, fileID, status string) error {
 
+	fmt.Printf("id %s fileID %s taskID %s", id, taskID, fileID)
 	_, err := ds.db.ExecContext(ctx, updateStatusAudio, id, toNullString(fileID), toNullString(taskID), status)
 	if err != nil {
 		return fmt.Errorf("ошибка обновления статуса аудио: %w", err)

@@ -77,6 +77,17 @@ func (p *ProcessorBot) newTeleBot(token string, pollingPeriod int) (*tele.Bot, e
 		return nil, err
 	}
 
+	err = b.SetCommands([]tele.Command{
+		{Text: "start", Description: "Запуск"},
+		{Text: "list", Description: "Получить список аудио"},
+		{Text: "get", Description: "Получить расшифровку по id"},
+		{Text: "find", Description: "Найти аудио по слову"},
+		{Text: "chat", Description: "Запуск чата"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	b.Handle("/start", p.SaveUser)
 	b.Handle("/list", p.GetListAudio)
 	b.Handle("/get", p.GetTextAudio)

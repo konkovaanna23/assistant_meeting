@@ -55,7 +55,7 @@ func main() {
 		cfg.SizeChannel,
 		cfg.CountWorkers,
 		cfg.TelegramToken,
-		10,
+		cfg.PollingBot,
 		salutSpeech,
 		gigaChat,
 		repo)

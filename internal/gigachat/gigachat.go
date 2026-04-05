@@ -3,6 +3,7 @@ package gigachat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -58,13 +59,22 @@ func NewGigaChatClient(ctx context.Context, setting *config.Setting, logger *zap
 		mainHost: setting.Main,
 		lgr:      logger,
 	}
-	responseToken, err := gigaChat.GetToken()
+	err := gigaChat.refreshToken()
 	if err != nil {
-		return nil, fmt.Errorf("ошибка получения токена: %s", err.Error())
+		return nil, fmt.Errorf("ошибка обновления токена: %s", err.Error())
 	}
-	gigaChat.setToken(responseToken)
 
 	return gigaChat, nil
+}
+
+func (gg *GigaChatClient) refreshToken() error {
+	responseToken, err := gg.GetToken()
+	if err != nil {
+		return err
+	}
+	gg.setToken(responseToken)
+
+	return nil
 }
 
 func (gg *GigaChatClient) setToken(token *model.Token) {
@@ -72,6 +82,7 @@ func (gg *GigaChatClient) setToken(token *model.Token) {
 	defer gg.mx.Unlock()
 	gg.token = token
 }
+
 func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 	rqUID := model.NewUUID()
 
@@ -102,6 +113,22 @@ func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 	return responseToken, nil
 }
 
+func (gg *GigaChatClient) DoWithRetry(req *resty.Request, method, url string) (*resty.Response, error) {
+	resp, err := req.Execute(method, url)
+
+	if err == nil && resp.StatusCode() != 401 {
+		return resp, err
+	}
+
+	if errRefresh := gg.refreshToken(); errRefresh != nil {
+		return nil, fmt.Errorf("не удалось обновить токен: %w", errRefresh)
+	}
+
+	req.SetHeader("Authorization", "Bearer "+gg.GetCurrentToken())
+
+	return req.Execute(method, url)
+}
+
 func (gg *GigaChatClient) GetCurrentToken() string {
 	gg.mx.RLock()
 	defer gg.mx.RUnlock()
@@ -109,6 +136,10 @@ func (gg *GigaChatClient) GetCurrentToken() string {
 }
 
 func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, error) {
+	if text == "" {
+		return "", errors.New("пустой запрос на получение краткой выжимки")
+	}
+
 	promptRequest := ""
 	if isVoice {
 		promptRequest = promptVoice + text
@@ -130,20 +161,20 @@ func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, er
 		return "", err
 	}
 
-	gg.client.SetDebug(true)
-
-	response, err := gg.client.R().
+	response, err := gg.DoWithRetry(gg.client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Authorization", "Bearer "+gg.GetCurrentToken()).
-		SetBody(body).
-		Post(gg.mainHost + endpointCompletions)
+		SetBody(body),
+		"POST",
+		gg.mainHost+endpointCompletions,
+	)
 
 	if err != nil {
 		return "", err
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("%s", response.Body())
+		return "", getErr(response.StatusCode())
 	}
 
 	responseGG := &GigaChatResponse{}
@@ -157,4 +188,22 @@ func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, er
 	}
 
 	return "Нет ответа", nil
+}
+
+func getErr(statusCode int) error {
+
+	switch statusCode {
+	case 400:
+		return errors.New("некорректный формат запроса")
+	case 401:
+		return errors.New("ошибка аторизации")
+	case 404:
+		return errors.New("указан неверный идентификатор модели.")
+	case 422:
+		return errors.New("ошибка валидации параметров запроса, проверьте названия полей и значения параметров.")
+	case 429:
+		return errors.New("слишком много запросов в единицу времени.")
+	default:
+		return errors.New("Internal Server Error")
+	}
 }
