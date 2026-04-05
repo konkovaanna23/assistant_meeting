@@ -6,43 +6,67 @@ import (
 	"fmt"
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
+	tele "gopkg.in/telebot.v3"
 )
 
-func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, error) {
+func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, []interface{}, error) {
 	switch job.Handler {
 	case "/start":
 		err := p.repo.CreateUser(ctx, job.UserID, job.ChatID, job.Username)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return "Привет! AssistantMeeting готов к работе", nil
+		return "Привет! AssistantMeeting готов к работе", nil, nil
 	case "/get":
 		result, err := p.repo.GetAudioByID(ctx, job.UserID, job.IdAudio)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return result, nil
+		return result, nil, nil
 	case "/list":
-		result, err := p.repo.GetAudioListForUser(ctx, job.UserID)
+		result, err := p.listAudio(ctx, job.UserID)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return model.FormatAudioList(result), nil
+		return "Выбери аудио:", []interface{}{result}, nil
 	case "/find":
 		result, err := p.repo.GetAudioByWord(ctx, job.UserID, job.KeyWord)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return model.FormatAudioList(result), nil
+		return model.FormatAudioList(result), nil, nil
 	case "OnVoice", "OnAudio":
 		result, err := p.processAudio(ctx, job.UserID, job.Handler == "OnVoice", job.FileName, job.FilePath, job.MIME)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return result, nil
+		return result, nil, nil
 	default:
-		return "", errors.New("неизвестная команда")
+		return "", nil, errors.New("неизвестная команда")
 	}
+}
+
+func (p *ProcessorBot) listAudio(ctx context.Context, userID int64) (*tele.ReplyMarkup, error) {
+	result, err := p.repo.GetAudioListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	markup := &tele.ReplyMarkup{}
+
+	var rows []tele.Row
+	for _, item := range result {
+		btn := markup.Data(
+			fmt.Sprintf("%s (%s)", item.Path, item.ID),
+			"item_get",
+			item.ID,
+		)
+		rows = append(rows, markup.Row(btn))
+	}
+
+	markup.Inline(rows...)
+
+	return markup, nil
 }
 
 func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice bool, sourceFileName string, filePath string, mime string) (string, error) {

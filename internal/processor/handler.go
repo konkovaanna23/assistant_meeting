@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"fmt"
 
 	"os"
@@ -191,4 +192,32 @@ func (p *ProcessorBot) GigaChatRequest(c tele.Context) error {
 
 func (p *ProcessorBot) handlerOnText(c tele.Context) error {
 	return c.Send("Будет реализовано позже")
+}
+
+func (p *ProcessorBot) handlerItemGet(c tele.Context) error {
+	fmt.Println("Был callback")
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+
+	fmt.Printf("data [%s] \n", cb.Data)
+
+	result, err := p.repo.GetAudioByID(context.Background(), c.Sender().ID, cb.Data)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{
+			Text:      "Элемент не найден",
+			ShowAlert: true,
+		})
+	}
+
+	fmt.Println(cb.Data)
+
+	if err := c.Respond(); err != nil {
+		return err
+	}
+
+	fmt.Println("Respond")
+
+	return c.Send(result)
 }

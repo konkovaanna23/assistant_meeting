@@ -100,6 +100,11 @@ func (p *ProcessorBot) newTeleBot(token string, pollingPeriod int) (*tele.Bot, e
 
 	b.Handle(tele.OnVoice, p.hanlerOnVoice)
 
+	markup := &tele.ReplyMarkup{}
+	btnItemGet := markup.Data("stub", "item_get")
+
+	b.Handle(&btnItemGet, p.handlerItemGet)
+
 	return b, nil
 
 }
@@ -134,7 +139,7 @@ func (p *ProcessorBot) worker(ctx context.Context, workerID int) {
 		case job := <-p.jobs:
 			reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second) /*TODO конфиги*/
 
-			answer, err := p.process(reqCtx, &job)
+			answer, opts, err := p.process(reqCtx, &job)
 			cancel()
 
 			chat := &tele.Chat{ID: job.ChatID}
@@ -155,7 +160,7 @@ func (p *ProcessorBot) worker(ctx context.Context, workerID int) {
 				continue
 			}
 
-			if _, sendErr := p.bot.Send(chat, answer); sendErr != nil {
+			if _, sendErr := p.bot.Send(chat, answer, opts...); sendErr != nil {
 				p.lgr.Error("ошибка отправки", zap.Int("worker", workerID), zap.String("handler", job.Handler), zap.Int64("userID", job.UserID), zap.Error(sendErr))
 			}
 		}
