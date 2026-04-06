@@ -12,7 +12,7 @@ var insertUser string = `
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING;
 	`
-var selectAudioForUser string = `SELECT id, path FROM recognition.users_audio WHERE user_id = $1`
+var selectAudioForUser string = `SELECT id, path FROM recognition.users_audio WHERE user_id = $1 and status='DONE' and result_short is not null`
 
 // CreateUser - добавление в users.
 func (ds *DBStore) CreateUser(ctx context.Context, id, chatid int64, username string) error {

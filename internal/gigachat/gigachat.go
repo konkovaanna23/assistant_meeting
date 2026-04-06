@@ -32,15 +32,10 @@ type GigaChatClient struct {
 }
 
 type GigaChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-	MaxTokens   int       `json:"max_tokens"`
-}
-
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Model       string           `json:"model"`
+	Messages    []*model.Message `json:"messages"`
+	Temperature float64          `json:"temperature"`
+	MaxTokens   int              `json:"max_tokens"`
 }
 
 type GigaChatResponse struct {
@@ -135,21 +130,28 @@ func (gg *GigaChatClient) GetCurrentToken() string {
 	return gg.token.Token
 }
 
-func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, error) {
-	if text == "" {
-		return "", errors.New("пустой запрос на получение краткой выжимки")
-	}
-
+func (gg *GigaChatClient) GetTextRequest(text string, isVoice bool) string {
 	promptRequest := ""
+
 	if isVoice {
 		promptRequest = promptVoice + text
 	} else {
 		promptRequest = promptAudio + text
 	}
 
+	return promptRequest
+}
+
+func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, error) {
+	if text == "" {
+		return "", errors.New("пустой запрос на получение краткой выжимки")
+	}
+
+	promptRequest := gg.GetTextRequest(text, isVoice)
+
 	reqBody := &GigaChatRequest{
 		Model: "GigaChat",
-		Messages: []Message{
+		Messages: []*model.Message{
 			{Role: "user", Content: promptRequest},
 		},
 		Temperature: 0.5,
@@ -161,6 +163,7 @@ func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, er
 		return "", err
 	}
 
+	fmt.Println("Body ", string(body))
 	response, err := gg.DoWithRetry(gg.client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Authorization", "Bearer "+gg.GetCurrentToken()).
@@ -174,6 +177,7 @@ func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, er
 	}
 
 	if response.StatusCode() != http.StatusOK {
+		gg.lgr.Error("ошибка запроса", zap.String("response", response.String()))
 		return "", getErr(response.StatusCode())
 	}
 
@@ -206,4 +210,55 @@ func getErr(statusCode int) error {
 	default:
 		return errors.New("Internal Server Error")
 	}
+}
+
+func (gg *GigaChatClient) Chat(ctx context.Context, msgs []*model.Message) (string, error) {
+	if len(msgs) == 0 {
+		return "", errors.New("нет сообщений")
+	}
+
+	reqBody := &GigaChatRequest{
+		Model:       "GigaChat",
+		Messages:    msgs,
+		Temperature: 0.5,
+		MaxTokens:   1024,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Println("Body ", string(body))
+
+	gg.client.SetDebug(true)
+
+	response, err := gg.DoWithRetry(gg.client.R().
+		SetContext(ctx).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", "Bearer "+gg.GetCurrentToken()).
+		SetBody(body),
+		"POST",
+		gg.mainHost+endpointCompletions,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	if response.StatusCode() != http.StatusOK {
+		return "", getErr(response.StatusCode())
+	}
+
+	responseGG := &GigaChatResponse{}
+
+	err = json.Unmarshal(response.Body(), &responseGG)
+	if err != nil {
+		return "", fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
+	}
+	if len(responseGG.Choices) > 0 {
+		return responseGG.Choices[0].Message.Content, nil
+	}
+
+	return "Нет ответа", nil
 }

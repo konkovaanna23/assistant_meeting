@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/konkovaanna23/assistant_meeting/internal/gigachat"
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"github.com/konkovaanna23/assistant_meeting/internal/repository"
 	"github.com/konkovaanna23/assistant_meeting/internal/salutspeech"
 	"go.uber.org/zap"
@@ -14,7 +16,6 @@ import (
 )
 
 type Job struct {
-	Msg      *tele.Message
 	Text     string
 	UserID   int64
 	Username string
@@ -39,6 +40,9 @@ type ProcessorBot struct {
 	gigachat    *gigachat.GigaChatClient
 
 	repo *repository.DBStore
+
+	userHistory map[int64][]*model.Message
+	mx          sync.RWMutex
 }
 
 func NewProcessorBot(logger *zap.Logger, sizeChannel, countWorkers int, tokenBot string, pollingPeriodBot int, ss *salutspeech.SalutSpeechClient, gg *gigachat.GigaChatClient, repository *repository.DBStore) (*ProcessorBot, error) {
@@ -50,6 +54,7 @@ func NewProcessorBot(logger *zap.Logger, sizeChannel, countWorkers int, tokenBot
 		salutSpeech: ss,
 		gigachat:    gg,
 		repo:        repository,
+		userHistory: make(map[int64][]*model.Message),
 	}
 	bot, err := pr.newTeleBot(tokenBot, pollingPeriodBot)
 	if err != nil {
