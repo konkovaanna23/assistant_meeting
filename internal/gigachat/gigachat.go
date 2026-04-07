@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/konkovaanna23/assistant_meeting/internal/auth"
 	"github.com/konkovaanna23/assistant_meeting/internal/config"
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
@@ -23,12 +23,13 @@ var promptVoice string = `Сделай краткую выжимку из рас
 
 type GigaChatClient struct {
 	client   *resty.Client
-	authHost string /*TODO сделать из конфигов*/
-	mainHost string /*TODO сделать из конфигов*/
-	authKey  string /*TODO сделать из конфигов*/
-	token    *model.Token
-	mx       sync.RWMutex
-	lgr      *zap.Logger
+	authHost string
+	mainHost string
+	authKey  string
+
+	tokenManager *auth.TokenManager
+
+	lgr *zap.Logger
 }
 
 type GigaChatRequest struct {
@@ -54,31 +55,12 @@ func NewGigaChatClient(ctx context.Context, setting *config.Setting, logger *zap
 		mainHost: setting.Main,
 		lgr:      logger,
 	}
-	err := gigaChat.refreshToken()
-	if err != nil {
-		return nil, fmt.Errorf("ошибка обновления токена: %s", err.Error())
-	}
+	gigaChat.tokenManager = auth.NewTokenManager(gigaChat.fetchToken)
 
 	return gigaChat, nil
 }
 
-func (gg *GigaChatClient) refreshToken() error {
-	responseToken, err := gg.GetToken()
-	if err != nil {
-		return err
-	}
-	gg.setToken(responseToken)
-
-	return nil
-}
-
-func (gg *GigaChatClient) setToken(token *model.Token) {
-	gg.mx.Lock()
-	defer gg.mx.Unlock()
-	gg.token = token
-}
-
-func (gg *GigaChatClient) GetToken() (*model.Token, error) {
+func (gg *GigaChatClient) fetchToken() (*model.Token, error) {
 	rqUID := model.NewUUID()
 
 	response, err := gg.client.R().
@@ -90,7 +72,6 @@ func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 			"scope": "GIGACHAT_API_PERS",
 		}).
 		Post(gg.authHost)
-
 	if err != nil {
 		return nil, err
 	}
@@ -99,35 +80,20 @@ func (gg *GigaChatClient) GetToken() (*model.Token, error) {
 		return nil, fmt.Errorf("%s", response.Body())
 	}
 
-	responseToken := &model.Token{}
-
-	err = json.Unmarshal(response.Body(), &responseToken)
-	if err != nil {
-		return nil, fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
+	token := &model.Token{}
+	if err := json.Unmarshal(response.Body(), token); err != nil {
+		return nil, fmt.Errorf("некорректный формат ответа: %w, body: %s", err, response.String())
 	}
-	return responseToken, nil
+
+	return token, nil
 }
 
 func (gg *GigaChatClient) DoWithRetry(req *resty.Request, method, url string) (*resty.Response, error) {
-	resp, err := req.Execute(method, url)
-
-	if err == nil && resp.StatusCode() != 401 {
-		return resp, err
-	}
-
-	if errRefresh := gg.refreshToken(); errRefresh != nil {
-		return nil, fmt.Errorf("не удалось обновить токен: %w", errRefresh)
-	}
-
-	req.SetHeader("Authorization", "Bearer "+gg.GetCurrentToken())
-
-	return req.Execute(method, url)
+	return gg.tokenManager.DoWithRetry(req, method, url)
 }
 
 func (gg *GigaChatClient) GetCurrentToken() string {
-	gg.mx.RLock()
-	defer gg.mx.RUnlock()
-	return gg.token.Token
+	return gg.tokenManager.CurrentToken()
 }
 
 func (gg *GigaChatClient) GetTextRequest(text string, isVoice bool) string {

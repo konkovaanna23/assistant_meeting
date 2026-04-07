@@ -51,14 +51,17 @@ func main() {
 
 	repo := repository.NewDBStore(logger.With(zap.String("component", "repository")), database)
 
-	processorBot, err := processor.NewProcessorBot(logger.With(zap.String("component", "processor")),
-		cfg.SizeChannel,
-		cfg.CountWorkers,
+	processorBot, err := processor.NewProcessorBot(
+		logger.With(zap.String("component", "processor")),
 		cfg.TelegramToken,
-		cfg.PollingBot,
 		salutSpeech,
 		gigaChat,
-		repo)
+		repo,
+		processor.WithCountWorkers(cfg.CountWorkers),
+		processor.WithPollingPeriodBot(cfg.PollingBot),
+		processor.WithSizeChannel(cfg.SizeChannel),
+		processor.WithUploadDir(cfg.DirectoryLoadAudio),
+	)
 
 	if err != nil {
 		logger.Fatal("Ошибка создания telegram bot", zap.Error(err))

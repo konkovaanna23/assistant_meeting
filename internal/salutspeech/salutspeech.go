@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/konkovaanna23/assistant_meeting/internal/auth"
 	"github.com/konkovaanna23/assistant_meeting/internal/config"
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
@@ -24,13 +24,15 @@ const (
 )
 
 type SalutSpeechClient struct {
-	client        *resty.Client
-	authHost      string
-	mainHost      string
-	authKey       string
-	token         *model.Token
-	requests      chan *model.Task
-	mx            sync.RWMutex
+	client   *resty.Client
+	authHost string
+	mainHost string
+	authKey  string
+
+	tokenManager *auth.TokenManager
+
+	requests chan *model.Task
+
 	lgr           *zap.Logger
 	periodPolling time.Duration
 }
@@ -80,35 +82,15 @@ func NewSalutSpeechClient(ctx context.Context, setting *config.Setting, countWor
 		requests:      make(chan *model.Task, sizeChanel),
 		lgr:           logger,
 		periodPolling: time.Duration(periodPolling) * time.Second,
-		token:         &model.Token{},
 	}
-	/*err := salutSpeech.refreshToken()
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения токена: %s", err.Error())
-	}*/
+
+	salutSpeech.tokenManager = auth.NewTokenManager(salutSpeech.fetchToken)
 
 	salutSpeech.StartWorkers(ctx, countWorkers)
 
 	return salutSpeech, nil
 }
-
-func (ss *SalutSpeechClient) setToken(token *model.Token) {
-	ss.mx.Lock()
-	defer ss.mx.Unlock()
-	ss.token = token
-}
-
-func (ss *SalutSpeechClient) refreshToken() error {
-	responseToken, err := ss.GetToken()
-	if err != nil {
-		return err
-	}
-	ss.setToken(responseToken)
-
-	return nil
-}
-
-func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
+func (ss *SalutSpeechClient) fetchToken() (*model.Token, error) {
 	rqUID := model.NewUUID()
 
 	response, err := ss.client.R().
@@ -120,7 +102,6 @@ func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
 			"scope": "SALUTE_SPEECH_PERS",
 		}).
 		Post(ss.authHost)
-
 	if err != nil {
 		return nil, err
 	}
@@ -129,29 +110,20 @@ func (ss *SalutSpeechClient) GetToken() (*model.Token, error) {
 		return nil, fmt.Errorf("%s", response.Body())
 	}
 
-	responseToken := &model.Token{}
-
-	err = json.Unmarshal(response.Body(), &responseToken)
-	if err != nil {
-		return nil, fmt.Errorf("некорректный формат ответа: %s, body: %s", err, response.String())
+	token := &model.Token{}
+	if err := json.Unmarshal(response.Body(), token); err != nil {
+		return nil, fmt.Errorf("некорректный формат ответа: %w, body: %s", err, response.String())
 	}
-	return responseToken, nil
+
+	return token, nil
 }
 
 func (ss *SalutSpeechClient) DoWithRetry(req *resty.Request, method, url string) (*resty.Response, error) {
-	resp, err := req.Execute(method, url)
+	return ss.tokenManager.DoWithRetry(req, method, url)
+}
 
-	if err == nil && resp.StatusCode() != 401 {
-		return resp, err
-	}
-
-	if errRefresh := ss.refreshToken(); errRefresh != nil {
-		return nil, fmt.Errorf("не удалось обновить токен: %w", errRefresh)
-	}
-
-	req.SetHeader("Authorization", "Bearer "+ss.GetCurrentToken())
-
-	return req.Execute(method, url)
+func (ss *SalutSpeechClient) GetCurrentToken() string {
+	return ss.tokenManager.CurrentToken()
 }
 
 func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string) (string, error) {
@@ -172,25 +144,20 @@ func (ss *SalutSpeechClient) UploadFile(audioFilePath string, contentType string
 		ss.lgr.Error("ошибка запроса UploadFile", zap.Int("StatusCode", response.StatusCode()), zap.String("Bode", response.String()))
 		return "", getErr(response.StatusCode())
 	}
+
 	responseUpload := &ResponseUploadFile{}
 
 	err = json.Unmarshal(response.Body(), &responseUpload)
 	if err != nil {
 		return "", fmt.Errorf("Некорректный формат ответа: %s, body: %s", err.Error(), response.String())
 	}
-	/*TODO добавить обработку всех статусов*/
+
 	if responseUpload.Status == 200 {
 		return responseUpload.Result.FileID, nil
 	} else {
 		return "", fmt.Errorf("некорректный ответ body: %s", response.String())
 	}
 
-}
-
-func (ss *SalutSpeechClient) GetCurrentToken() string {
-	ss.mx.RLock()
-	defer ss.mx.RUnlock()
-	return ss.token.Token
 }
 
 func (ss *SalutSpeechClient) CreateTaskRecognize(fileID string, encoding string, channels int, sampleRate int) (*StatusTask, error) {

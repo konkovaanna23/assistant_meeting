@@ -45,27 +45,50 @@ type ProcessorBot struct {
 	mx          sync.RWMutex
 }
 
-func NewProcessorBot(logger *zap.Logger, sizeChannel, countWorkers int, tokenBot string, pollingPeriodBot int, ss *salutspeech.SalutSpeechClient, gg *gigachat.GigaChatClient, repository *repository.DBStore) (*ProcessorBot, error) {
+func NewProcessorBot(logger *zap.Logger, tokenBot string, ss *salutspeech.SalutSpeechClient, gg *gigachat.GigaChatClient, repo *repository.DBStore, opts ...ProcessorBotOption) (*ProcessorBot, error) {
+
+	if logger == nil {
+		return nil, fmt.Errorf("не указан logger")
+	}
+	if tokenBot == "" {
+		return nil, fmt.Errorf("не указан tokenBot")
+	}
+	if ss == nil {
+		return nil, fmt.Errorf("не указан salutSpeechСlient")
+	}
+	if gg == nil {
+		return nil, fmt.Errorf("не указан gigachatСlient")
+	}
+	if repo == nil {
+		return nil, fmt.Errorf("не указан repository")
+	}
+
+	cfg := ProcessorBotConfig{}
+	Apply(&cfg, opts...)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	pr := &ProcessorBot{
 		lgr:         logger,
-		jobs:        make(chan Job, sizeChannel),
-		workers:     countWorkers,
+		jobs:        make(chan Job, cfg.SizeChannel),
+		workers:     cfg.CountWorkers,
 		salutSpeech: ss,
 		gigachat:    gg,
-		repo:        repository,
+		repo:        repo,
 		userHistory: make(map[int64][]*model.Message),
 	}
-	bot, err := pr.newTeleBot(tokenBot, pollingPeriodBot)
+
+	bot, err := pr.newTeleBot(tokenBot, cfg.PollingPeriodBot)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания подключения к telegram bot: %s", err.Error())
+		return nil, fmt.Errorf("ошибка создания подключения к telegram bot: %w", err)
 	}
 
 	pr.bot = bot
 
-	err = ensureUploadDir("./" + dirDownloads)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось создать директорию для загрузки audio %s", err.Error())
+	if err := ensureUploadDir(cfg.UploadDir); err != nil {
+		return nil, fmt.Errorf("не удалось создать директорию для загрузки audio: %w", err)
 	}
 
 	return pr, nil

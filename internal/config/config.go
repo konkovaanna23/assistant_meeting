@@ -19,15 +19,16 @@ const (
 
 // Config Конфигурация приложения.
 type Config struct {
-	TelegramToken  string   `json:"token_telegram"`
-	CountWorkers   int      `json:"count_workers"`
-	SizeChannel    int      `json:"optimal_chan_size"`
-	PeriodPolling  int      `json:"period_polling"`
-	SalutSpeech    *Setting `json:"salut_speech"`
-	GigaChat       *Setting `json:"giga_chat"`
-	DSN            string   `json:"dsn"`
-	PollingBot     int      `json:"polling_bot"`
-	ContextTimeout int      `json:"context_timeout"`
+	TelegramToken      string   `json:"token_telegram"`
+	CountWorkers       int      `json:"count_workers"`
+	SizeChannel        int      `json:"optimal_chan_size"`
+	PeriodPolling      int      `json:"period_polling"`
+	SalutSpeech        *Setting `json:"salut_speech"`
+	GigaChat           *Setting `json:"giga_chat"`
+	DSN                string   `json:"dsn"`
+	PollingBot         int      `json:"polling_bot"`
+	ContextTimeout     int      `json:"context_timeout"`
+	DirectoryLoadAudio string   `json:"dir_load_audio"`
 }
 
 type Setting struct {
@@ -93,6 +94,10 @@ func GetConfig() (*Config, error) {
 
 	if cfg.DSN == "" {
 		return nil, errors.New("не задан конфигурация для подключения к БД")
+	}
+
+	if cfg.DirectoryLoadAudio == "" {
+		return nil, errors.New("не задан директория для загрузки аудио")
 	}
 
 	return cfg, nil

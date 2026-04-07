@@ -40,6 +40,9 @@ func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, []interfa
 		if err != nil {
 			return "", nil, err
 		}
+		if len(result) == 0 {
+			return fmt.Sprintf("По слову [%s] не найдено аудио", job.KeyWord), nil, nil
+		}
 		return model.FormatAudioList(result), nil, nil
 	case "OnVoice", "OnAudio":
 		result, resultSource, err := p.processAudio(ctx, job.UserID, job.Handler == "OnVoice", job.FileName, job.FilePath, job.MIME)
@@ -117,11 +120,14 @@ func (p *ProcessorBot) processAudio(ctx context.Context, userID int64, isVoice b
 	<-task.Done
 
 	text, err := p.saveResultAudio(ctx, id, task.Result)
+	if err != nil {
+		p.lgr.Error("Ошибка сохранения результата", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
+		return "", "", errors.New("ошибка распознавания файла")
+	}
 
 	result, err := p.gigachat.GetBriefExtract(text, isVoice)
 	if err != nil {
 		p.lgr.Error("ошибка получения краткой выжимки", zap.Int64("userID", userID), zap.String("fileName", sourceFileName), zap.Error(err))
-
 		return "", "", errors.New("ошибка получения краткой выжимки")
 	}
 
