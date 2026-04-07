@@ -129,7 +129,6 @@ func (gg *GigaChatClient) GetBriefExtract(text string, isVoice bool) (string, er
 		return "", err
 	}
 
-	fmt.Println("Body ", string(body))
 	response, err := gg.DoWithRetry(gg.client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Authorization", "Bearer "+gg.GetCurrentToken()).
@@ -194,10 +193,6 @@ func (gg *GigaChatClient) Chat(ctx context.Context, msgs []*model.Message) (stri
 	if err != nil {
 		return "", err
 	}
-
-	fmt.Println("Body ", string(body))
-
-	gg.client.SetDebug(true)
 
 	response, err := gg.DoWithRetry(gg.client.R().
 		SetContext(ctx).

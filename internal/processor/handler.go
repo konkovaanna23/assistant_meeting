@@ -212,7 +212,6 @@ func (p *ProcessorBot) handlerItemGet(c tele.Context) error {
 		return nil
 	}
 
-	fmt.Printf("data [%s] \n", cb.Data)
 	userID := c.Sender().ID
 
 	resultShort, result, isVoice, err := p.repo.GetAudioByID(context.Background(), userID, cb.Data)
@@ -227,13 +226,9 @@ func (p *ProcessorBot) handlerItemGet(c tele.Context) error {
 	p.saveSessionRequest(userID, model.RoleUser, p.gigachat.GetTextRequest(result, isVoice))
 	p.saveSessionRequest(userID, model.RoleAssistant, resultShort)
 
-	fmt.Println(cb.Data)
-
 	if err := c.Respond(); err != nil {
 		return err
 	}
-
-	fmt.Println("Respond")
 
 	return c.Send(resultShort)
 }

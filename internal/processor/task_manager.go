@@ -2,7 +2,6 @@ package processor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -60,8 +59,6 @@ func (p *ProcessorBot) process(ctx context.Context, job *Job) (string, []interfa
 
 		messages := p.GetSession(job.UserID)
 
-		js, _ := json.Marshal(messages)
-		fmt.Println("js----------", string(js))
 		result, err := p.gigachat.Chat(ctx, messages)
 		if err != nil {
 			return "", nil, err
