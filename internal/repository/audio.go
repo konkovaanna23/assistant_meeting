@@ -10,9 +10,11 @@ import (
 	"github.com/konkovaanna23/assistant_meeting/internal/model"
 )
 
-var selectAudioByID string = `SELECT result_short FROM recognition.users_audio WHERE user_id = $1 and id=$2`
+var ErrorNotContent = errors.New("data not found")
 
-var selectAudioByWord string = `SELECT a.id, a.path FROM recognition.users_audio a inner join recognition.users_audio_words w on w.id=a.id WHERE a.user_id = $1 and word=$2 and status='DONE'`
+var selectAudioByID string = `SELECT result_short, result_text, is_voice FROM recognition.users_audio WHERE user_id = $1 and id=$2`
+
+var selectAudioByWord string = `SELECT a.id, a.path FROM recognition.users_audio a inner join recognition.users_audio_words w on w.id=a.id WHERE a.user_id = $1 and word=$2 `
 
 var insertAudio string = `INSERT INTO recognition.users_audio(id, user_id, path, is_voice) values($1,$2,$3,$4)`
 
@@ -32,20 +34,20 @@ var insertWords string = `
 				INSERT INTO recognition.users_audio_words (id, word)
 				VALUES %s
 			`
-var ErrorNotContent = errors.New("data not found")
 
-func (ds *DBStore) GetAudioByID(ctx context.Context, userID int64, audioID string) (string, error) {
-	var text string
+func (ds *DBStore) GetAudioByID(ctx context.Context, userID int64, audioID string) (string, string, bool, error) {
+	var text, shortText string
+	var isVoice bool
 
-	err := ds.db.QueryRowxContext(ctx, selectAudioByID, userID, audioID).Scan(&text)
+	err := ds.db.QueryRowxContext(ctx, selectAudioByID, userID, audioID).Scan(&shortText, &text, &isVoice)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrorNotContent
+			return "", "", false, ErrorNotContent
 		}
-		return "", fmt.Errorf("ошибка получения текст аудио из БД: %w", err)
+		return "", "", false, fmt.Errorf("ошибка получения текст аудио из БД: %w", err)
 	}
 
-	return text, nil
+	return shortText, text, isVoice, nil
 }
 
 func (ds *DBStore) GetAudioByWord(ctx context.Context, userID int64, word string) ([]*model.AudioShort, error) {

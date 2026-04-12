@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"fmt"
 
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 )
@@ -186,9 +188,47 @@ func (p *ProcessorBot) handlerOnAudio(c tele.Context) error {
 }
 
 func (p *ProcessorBot) GigaChatRequest(c tele.Context) error {
-	return c.Send("Будет реализовано позже")
+	p.KeepLastMessageOnly(c.Sender().ID)
+
+	return c.Send("Жду ваш вопрос к GigaChat")
 }
 
 func (p *ProcessorBot) handlerOnText(c tele.Context) error {
-	return c.Send("Будет реализовано позже")
+
+	job := Job{
+		UserID:  c.Sender().ID,
+		Handler: "OnText",
+		ChatID:  c.Chat().ID,
+		Text:    c.Message().Text,
+	}
+
+	return p.createTask(c, job)
+}
+
+func (p *ProcessorBot) handlerItemGet(c tele.Context) error {
+
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+
+	userID := c.Sender().ID
+
+	resultShort, result, isVoice, err := p.repo.GetAudioByID(context.Background(), userID, cb.Data)
+	if err != nil {
+		p.lgr.Error("ошибка получения по id", zap.String("id", cb.Data), zap.Error(err))
+		return c.Respond(&tele.CallbackResponse{
+			Text:      "Элемент не найден",
+			ShowAlert: true,
+		})
+	}
+
+	p.saveSessionRequest(userID, model.RoleUser, p.gigachat.GetTextRequest(result, isVoice))
+	p.saveSessionRequest(userID, model.RoleAssistant, resultShort)
+
+	if err := c.Respond(); err != nil {
+		return err
+	}
+
+	return c.Send(resultShort)
 }

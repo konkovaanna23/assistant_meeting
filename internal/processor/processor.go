@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/konkovaanna23/assistant_meeting/internal/gigachat"
+	"github.com/konkovaanna23/assistant_meeting/internal/model"
 	"github.com/konkovaanna23/assistant_meeting/internal/repository"
 	"github.com/konkovaanna23/assistant_meeting/internal/salutspeech"
 	"go.uber.org/zap"
@@ -14,7 +16,6 @@ import (
 )
 
 type Job struct {
-	Msg      *tele.Message
 	Text     string
 	UserID   int64
 	Username string
@@ -39,28 +40,55 @@ type ProcessorBot struct {
 	gigachat    *gigachat.GigaChatClient
 
 	repo *repository.DBStore
+
+	userHistory map[int64][]*model.Message
+	mx          sync.RWMutex
 }
 
-func NewProcessorBot(logger *zap.Logger, sizeChannel, countWorkers int, tokenBot string, pollingPeriodBot int, ss *salutspeech.SalutSpeechClient, gg *gigachat.GigaChatClient, repository *repository.DBStore) (*ProcessorBot, error) {
+func NewProcessorBot(logger *zap.Logger, tokenBot string, ss *salutspeech.SalutSpeechClient, gg *gigachat.GigaChatClient, repo *repository.DBStore, opts ...ProcessorBotOption) (*ProcessorBot, error) {
+
+	if logger == nil {
+		return nil, fmt.Errorf("не указан logger")
+	}
+	if tokenBot == "" {
+		return nil, fmt.Errorf("не указан tokenBot")
+	}
+	if ss == nil {
+		return nil, fmt.Errorf("не указан salutSpeechСlient")
+	}
+	if gg == nil {
+		return nil, fmt.Errorf("не указан gigachatСlient")
+	}
+	if repo == nil {
+		return nil, fmt.Errorf("не указан repository")
+	}
+
+	cfg := ProcessorBotConfig{}
+	Apply(&cfg, opts...)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	pr := &ProcessorBot{
 		lgr:         logger,
-		jobs:        make(chan Job, sizeChannel),
-		workers:     countWorkers,
+		jobs:        make(chan Job, cfg.SizeChannel),
+		workers:     cfg.CountWorkers,
 		salutSpeech: ss,
 		gigachat:    gg,
-		repo:        repository,
+		repo:        repo,
+		userHistory: make(map[int64][]*model.Message),
 	}
-	bot, err := pr.newTeleBot(tokenBot, pollingPeriodBot)
+
+	bot, err := pr.newTeleBot(tokenBot, cfg.PollingPeriodBot)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания подключения к telegram bot: %s", err.Error())
+		return nil, fmt.Errorf("ошибка создания подключения к telegram bot: %w", err)
 	}
 
 	pr.bot = bot
 
-	err = ensureUploadDir("./" + dirDownloads)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось создать директорию для загрузки audio %s", err.Error())
+	if err := ensureUploadDir(cfg.UploadDir); err != nil {
+		return nil, fmt.Errorf("не удалось создать директорию для загрузки audio: %w", err)
 	}
 
 	return pr, nil
@@ -77,6 +105,17 @@ func (p *ProcessorBot) newTeleBot(token string, pollingPeriod int) (*tele.Bot, e
 		return nil, err
 	}
 
+	err = b.SetCommands([]tele.Command{
+		{Text: "start", Description: "Запуск"},
+		{Text: "list", Description: "Получить список аудио"},
+		{Text: "get", Description: "Получить расшифровку по id"},
+		{Text: "find", Description: "Найти аудио по слову"},
+		{Text: "chat", Description: "Запуск чата"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	b.Handle("/start", p.SaveUser)
 	b.Handle("/list", p.GetListAudio)
 	b.Handle("/get", p.GetTextAudio)
@@ -88,6 +127,11 @@ func (p *ProcessorBot) newTeleBot(token string, pollingPeriod int) (*tele.Bot, e
 	b.Handle(tele.OnAudio, p.handlerOnAudio)
 
 	b.Handle(tele.OnVoice, p.hanlerOnVoice)
+
+	markup := &tele.ReplyMarkup{}
+	btnItemGet := markup.Data("stub", "item_get")
+
+	b.Handle(&btnItemGet, p.handlerItemGet)
 
 	return b, nil
 
@@ -123,7 +167,7 @@ func (p *ProcessorBot) worker(ctx context.Context, workerID int) {
 		case job := <-p.jobs:
 			reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second) /*TODO конфиги*/
 
-			answer, err := p.process(reqCtx, &job)
+			answer, opts, err := p.process(reqCtx, &job)
 			cancel()
 
 			chat := &tele.Chat{ID: job.ChatID}
@@ -144,7 +188,7 @@ func (p *ProcessorBot) worker(ctx context.Context, workerID int) {
 				continue
 			}
 
-			if _, sendErr := p.bot.Send(chat, answer); sendErr != nil {
+			if _, sendErr := p.bot.Send(chat, answer, opts...); sendErr != nil {
 				p.lgr.Error("ошибка отправки", zap.Int("worker", workerID), zap.String("handler", job.Handler), zap.Int64("userID", job.UserID), zap.Error(sendErr))
 			}
 		}

@@ -7,7 +7,6 @@ import (
 )
 
 type InputAudio struct {
-	// Что пришло от Telegram / из файла
 	AudioID      string
 	FileName     string // например "voice.ogg", "song.mp3", "audio.m4a"
 	MIME         string // например "audio/ogg", "audio/mpeg"
@@ -43,20 +42,16 @@ func FormatAudioList(audioList []*AudioShort) string {
 
 	var lines []string
 
-	lines = append(lines, "📁 Список ваших аудиозаписей:")
+	lines = append(lines, "Список ваших аудиозаписей:")
 	lines = append(lines, "")
-	lines = append(lines, " №  | ID                          | Файл")
-	lines = append(lines, "────┼─────────────────────────────┼──────────────────────")
+	lines = append(lines, " № | ID  | Файл")
+	lines = append(lines, "───┼─────┼──────")
 
 	for i, audio := range audioList {
 
 		fileName := audio.Path
 		if lastSlash := strings.LastIndex(fileName, "/"); lastSlash != -1 {
 			fileName = fileName[lastSlash+1:]
-		}
-
-		if len(fileName) > 20 {
-			fileName = fileName[:18] + ".."
 		}
 
 		line := fmt.Sprintf(" %d  | %s | %s",

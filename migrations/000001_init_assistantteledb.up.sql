@@ -31,3 +31,5 @@ CREATE TABLE IF NOT EXISTS recognition.users_audio_words (
     word varchar,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+
